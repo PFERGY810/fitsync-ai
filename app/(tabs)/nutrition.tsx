@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Animated } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Apple, Target, TrendingUp, Clock } from 'lucide-react-native';
 import { useNutritionAdvisor } from '@/hooks/use-nutrition-advisor';
@@ -21,7 +21,7 @@ export default function NutritionScreen() {
       duration: 800,
       useNativeDriver: true,
     }).start();
-  }, [fadeAnim, currentNutritionPlan, userProfile]);
+  }, [fadeAnim, currentNutritionPlan, userProfile, generatePhysiqueBasedPlan]);
 
   if (isGeneratingNutritionPlan) {
     return (
@@ -46,7 +46,7 @@ export default function NutritionScreen() {
           
           {/* Daily Overview */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Today's Goals</Text>
+            <Text style={styles.sectionTitle}>Today&apos;s Goals</Text>
             <View style={styles.overviewCard}>
               <View style={styles.caloriesSection}>
                 <View style={styles.caloriesHeader}>
@@ -113,7 +113,7 @@ export default function NutritionScreen() {
           {/* Meal Plan */}
           {currentNutritionPlan && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Today's Meals</Text>
+              <Text style={styles.sectionTitle}>Today&apos;s Meals</Text>
               <View style={styles.mealsContainer}>
                 
                 <View style={styles.mealCard}>
@@ -457,7 +457,7 @@ const styles = StyleSheet.create({
   progressText: {
     color: '#9CA3AF',
     fontSize: 12,
-    textAlign: 'right',
+    textAlign: 'right' as const,
   },
   tipsCard: {
     backgroundColor: '#1F2937',
