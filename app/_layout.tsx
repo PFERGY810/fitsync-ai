@@ -1,16 +1,14 @@
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
-import { useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
 
-export default function RootLayout() {
+function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const { isOnboardingCompleted } = useUserStore();
   
   useEffect(() => {
     // Check if the user has completed onboarding
-    const inAuthGroup = segments[0] === '(tabs)';
     const inOnboarding = segments[0] === 'onboarding';
     const inPhysiqueSetup = segments[0] === 'physique-setup';
     const inPhysiqueResults = segments[0] === 'physique-results';
@@ -22,9 +20,9 @@ export default function RootLayout() {
     
     // If onboarding is completed and user is in onboarding, redirect to home
     if (isOnboardingCompleted() && inOnboarding) {
-      router.replace('/');
+      router.replace('/(tabs)');
     }
-  }, [segments, isOnboardingCompleted]);
+  }, [segments, isOnboardingCompleted, router]);
   
   return (
     <Stack
@@ -39,4 +37,8 @@ export default function RootLayout() {
       }}
     />
   );
+}
+
+export default function RootLayout() {
+  return <RootLayoutNav />;
 }
