@@ -1,6 +1,5 @@
 import { aiClient } from './ai-client';
-import { WorkoutPlanRequest, WorkoutPlanResponse } from '@/types/ai';
-import { PhysiqueAnalysisResult } from './physique-analyzer';
+import { WorkoutPlanRequest, WorkoutPlanResponse, PhysiqueAnalysisResult } from '@/types/ai';
 
 export class WorkoutPlannerService {
   async generateWorkoutPlan(
@@ -15,7 +14,13 @@ export class WorkoutPlannerService {
       const response = await aiClient.generateWorkoutPlan(prompt);
       
       // Parse and enhance the response
-      return this.enhanceWorkoutPlan(JSON.parse(response), request);
+      try {
+        const parsedResponse = JSON.parse(response);
+        return this.enhanceWorkoutPlan(parsedResponse, request, physiqueAnalysis);
+      } catch (parseError) {
+        console.error('Error parsing workout plan response:', parseError);
+        return this.createStructuredPlanFromText(response, request, physiqueAnalysis);
+      }
     } catch (error) {
       console.error('Workout plan generation error:', error);
       return this.getFallbackWorkoutPlan(request);
@@ -57,57 +62,79 @@ User Stats:
 
     if (physiqueAnalysis) {
       prompt += `
-Physique Analysis:
+Physique Analysis Results:
+- Overall Muscle Mass: ${physiqueAnalysis.metrics.muscleMass}%
 - Body Fat: ${physiqueAnalysis.metrics.bodyFat}%
-- Muscle Mass: ${physiqueAnalysis.metrics.muscleMass}%
-- Symmetry: ${physiqueAnalysis.metrics.symmetry}/10
-- Posture: ${physiqueAnalysis.metrics.posture}/10
+- Symmetry Score: ${physiqueAnalysis.metrics.symmetry}/10
+- Posture Score: ${physiqueAnalysis.metrics.posture}/10
+- Overall Convexity: ${physiqueAnalysis.metrics.overallConvexity}/10
 
-Weak Points: ${physiqueAnalysis.weakPoints.join(', ')}
-Strong Points: ${physiqueAnalysis.strengthPoints.join(', ')}
-`;
+Weak Points to Prioritize:
+${physiqueAnalysis.weakPoints.map(wp => `- ${wp}`).join('\n')}
 
-      // Add muscle group specific details
-      prompt += `\nMuscle Group Development:\n`;
-      for (const [group, data] of Object.entries(physiqueAnalysis.muscleGroups)) {
-        prompt += `- ${group}: Development ${data.development}/10, Symmetry ${data.symmetry}/10\n`;
-      }
+Strength Points to Maintain:
+${physiqueAnalysis.strengthPoints.map(sp => `- ${sp}`).join('\n')}
+
+Muscle Group Analysis:`;
+      
+      Object.entries(physiqueAnalysis.muscleGroups).forEach(([group, analysis]) => {
+        prompt += `
+- ${group}: Development ${analysis.development}/10, Convexity ${analysis.convexity}/10, Symmetry ${analysis.symmetry}/10`;
+      });
     }
 
     prompt += `
-Please create a comprehensive workout plan that includes:
-1. A weekly schedule with specific workouts for each day
-2. Detailed exercises with sets, reps, and rest periods
-3. Progressive overload strategy
-4. Nutrition recommendations to support the training
-5. Progress tracking metrics
 
-Format the response as a structured JSON object.`;
+Please create a detailed hypertrophy-focused workout plan that:
+1. Prioritizes weak points identified in the physique analysis
+2. Uses progressive overload principles with specific volume targets
+3. Includes compound and isolation exercises with proper form cues
+4. Provides specific sets, reps, rest periods, and RPE targets
+5. Incorporates periodization for continuous progress
+6. Adapts to the user's experience level and available time
+7. Focuses on muscle building as the primary goal
+8. Includes recovery and deload planning
+
+Format the response as a structured JSON object with detailed exercise prescriptions.`;
 
     return prompt;
   }
 
-  private enhanceWorkoutPlan(response: any, request: WorkoutPlanRequest): WorkoutPlanResponse {
+  private enhanceWorkoutPlan(
+    response: any, 
+    request: WorkoutPlanRequest,
+    physiqueAnalysis: PhysiqueAnalysisResult | null
+  ): WorkoutPlanResponse {
     // Ensure the plan has all required properties
     const enhancedPlan = {
       plan: {
         name: response.plan?.name || this.generatePlanName(request.goal, request.experience),
         duration: response.plan?.duration || '8 weeks',
         description: response.plan?.description || this.generatePlanDescription(request),
-        schedule: response.plan?.schedule || this.generateDefaultSchedule(request)
+        schedule: this.enhanceSchedule(response.plan?.schedule || [], request, physiqueAnalysis)
       },
-      nutrition: response.nutrition || this.generateDefaultNutrition(request),
-      progressTracking: response.progressTracking || {
-        metrics: [
-          'Weight',
-          'Body measurements',
-          'Progress photos',
-          'Strength progression'
+      nutrition: {
+        dailyCalories: response.nutrition?.dailyCalories || this.calculateCalories(request),
+        macros: {
+          protein: response.nutrition?.macros?.protein || this.calculateProtein(request),
+          carbs: response.nutrition?.macros?.carbs || this.calculateCarbs(request),
+          fats: response.nutrition?.macros?.fats || this.calculateFats(request)
+        },
+        tips: response.nutrition?.tips || this.generateNutritionTips(request, physiqueAnalysis)
+      },
+      progressTracking: {
+        metrics: response.progressTracking?.metrics || [
+          'Weight progression on key lifts',
+          'Body weight and composition changes',
+          'Progress photos from multiple angles',
+          'Muscle circumference measurements',
+          'Physique analysis scores'
         ],
-        checkpoints: [
-          'Week 2: Initial progress assessment',
-          'Week 4: Mid-program evaluation',
-          'Week 8: Final results assessment'
+        checkpoints: response.progressTracking?.checkpoints || [
+          'Week 2: Form assessment and initial adaptations',
+          'Week 4: Mid-program evaluation and load adjustments',
+          'Week 6: Exercise variation and intensity progression',
+          'Week 8: Program completion and next phase planning'
         ]
       }
     };
@@ -577,6 +604,168 @@ Format the response as a structured JSON object.`;
     };
   }
 
+  private createStructuredPlanFromText(
+    responseText: string,
+    request: WorkoutPlanRequest & { userStats?: any },
+    physiqueAnalysis: PhysiqueAnalysisResult | null
+  ): WorkoutPlanResponse {
+    // Fallback parsing logic for unstructured responses
+    return this.getFallbackWorkoutPlan(request);
+  }
+
+  private enhanceSchedule(
+    schedule: any[],
+    request: WorkoutPlanRequest & { userStats?: any },
+    physiqueAnalysis: PhysiqueAnalysisResult | null
+  ) {
+    if (!schedule || schedule.length === 0) {
+      return this.generateDefaultSchedule(request);
+    }
+
+    return schedule.map(day => ({
+      day: day.day || 'Training Day',
+      type: day.type || 'Full Body',
+      duration: day.duration || request.timePerSession,
+      exercises: day.exercises?.map((exercise: any) => ({
+        name: exercise.name || 'Exercise',
+        sets: exercise.sets || 3,
+        reps: exercise.reps || '8-12',
+        weight: exercise.weight || 'Progressive',
+        notes: exercise.notes || 'Focus on form',
+        targetMuscles: exercise.targetMuscles || ['Full Body']
+      })) || [],
+      restDay: day.restDay || false
+    }));
+  }
+
+  private calculateCalories(request: WorkoutPlanRequest & { userStats?: any }): number {
+    const { userStats, goal } = request;
+    
+    if (!userStats) {
+      // Default calories based on goal
+      const goalCalories = {
+        build_muscle: 2800,
+        lose_weight: 2000,
+        strength: 2600,
+        endurance: 2400
+      };
+      return goalCalories[goal as keyof typeof goalCalories] || 2500;
+    }
+    
+    const { weight, height, age, gender } = userStats;
+    
+    // Calculate BMR using Mifflin-St Jeor Equation
+    let bmr: number;
+    if (gender === 'male') {
+      bmr = 10 * weight + 6.25 * height - 5 * age + 5;
+    } else {
+      bmr = 10 * weight + 6.25 * height - 5 * age - 161;
+    }
+    
+    // Activity multiplier based on goal
+    let activityMultiplier = 1.6; // Moderate activity
+    if (goal === 'build_muscle' || goal === 'strength') {
+      activityMultiplier = 1.8; // Very active
+    } else if (goal === 'lose_weight') {
+      activityMultiplier = 1.5; // Light activity for deficit
+    } else if (goal === 'endurance') {
+      activityMultiplier = 1.9; // Extra active
+    }
+    
+    return Math.round(bmr * activityMultiplier);
+  }
+
+  private calculateProtein(request: WorkoutPlanRequest & { userStats?: any }): number {
+    const { goal } = request;
+    
+    // Protein percentage based on goal
+    const proteinPercentages = {
+      build_muscle: 30,
+      lose_weight: 40,
+      strength: 30,
+      endurance: 25
+    };
+    
+    return proteinPercentages[goal as keyof typeof proteinPercentages] || 30;
+  }
+
+  private calculateCarbs(request: WorkoutPlanRequest & { userStats?: any }): number {
+    const { goal } = request;
+    
+    // Carb percentage based on goal
+    const carbPercentages = {
+      build_muscle: 45,
+      lose_weight: 30,
+      strength: 40,
+      endurance: 55
+    };
+    
+    return carbPercentages[goal as keyof typeof carbPercentages] || 40;
+  }
+
+  private calculateFats(request: WorkoutPlanRequest & { userStats?: any }): number {
+    const { goal } = request;
+    
+    // Fat percentage based on goal
+    const fatPercentages = {
+      build_muscle: 25,
+      lose_weight: 30,
+      strength: 30,
+      endurance: 20
+    };
+    
+    return fatPercentages[goal as keyof typeof fatPercentages] || 25;
+  }
+
+  private generateNutritionTips(
+    request: WorkoutPlanRequest & { userStats?: any },
+    physiqueAnalysis: PhysiqueAnalysisResult | null
+  ): string[] {
+    const { goal } = request;
+    const baseTips = [
+      'Stay hydrated throughout the day (aim for 3-4 liters)',
+      'Prioritize whole foods over processed options',
+      'Time your meals around your workouts for optimal performance'
+    ];
+
+    if (goal === 'build_muscle') {
+      baseTips.push(
+        'Consume 20-30g protein within 2 hours post-workout',
+        'Eat in a slight caloric surplus (300-500 calories above maintenance)',
+        'Include complex carbs for sustained energy during workouts'
+      );
+    } else if (goal === 'lose_weight') {
+      baseTips.push(
+        'Maintain a moderate caloric deficit (300-500 calories below maintenance)',
+        'Prioritize protein to preserve muscle mass during weight loss',
+        'Consider intermittent fasting if it fits your lifestyle'
+      );
+    } else if (goal === 'strength') {
+      baseTips.push(
+        'Fuel your workouts with adequate carbohydrates',
+        'Don\'t neglect healthy fats for hormone production',
+        'Consider creatine supplementation (3-5g daily)'
+      );
+    } else if (goal === 'endurance') {
+      baseTips.push(
+        'Focus on complex carbohydrates for sustained energy',
+        'Include electrolytes during longer training sessions',
+        'Practice your race-day nutrition strategy during training'
+      );
+    }
+
+    if (physiqueAnalysis) {
+      if (physiqueAnalysis.metrics.bodyFat > 20) {
+        baseTips.push('Consider reducing refined sugars and processed foods');
+      }
+      if (physiqueAnalysis.metrics.muscleMass < 75) {
+        baseTips.push('Increase protein intake to support muscle growth');
+      }
+    }
+
+    return baseTips;
+  }
+
   private getFallbackWorkoutPlan(request: WorkoutPlanRequest): WorkoutPlanResponse {
     return {
       plan: {
@@ -588,15 +777,15 @@ Format the response as a structured JSON object.`;
       nutrition: this.generateDefaultNutrition(request),
       progressTracking: {
         metrics: [
-          'Weight',
-          'Body measurements',
-          'Progress photos',
-          'Strength progression'
+          'Weight progression on key lifts',
+          'Body weight and composition changes',
+          'Progress photos from multiple angles',
+          'Muscle circumference measurements'
         ],
         checkpoints: [
-          'Week 2: Initial progress assessment',
-          'Week 4: Mid-program evaluation',
-          'Week 8: Final results assessment'
+          'Week 2: Form assessment and initial adaptations',
+          'Week 4: Mid-program evaluation and load adjustments',
+          'Week 8: Program completion and next phase planning'
         ]
       }
     };

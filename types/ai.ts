@@ -184,24 +184,7 @@ export interface PhysiqueAnalysisResult {
 }
 
 // PhysiqueAnalysisResponse interface - matches what the AI service returns
-export interface PhysiqueAnalysisResponse {
-  poseType: string;
-  date: string;
-  metrics: {
-    muscleMass: number;
-    bodyFat: number;
-    symmetry: number;
-    posture: number;
-    overallConvexity: number;
-  };
-  insights: string[];
-  recommendations: string[];
-  muscleGroups: {
-    [key: string]: MuscleGroupAnalysis;
-  };
-  weakPoints: string[];
-  strengthPoints: string[];
-}
+export interface PhysiqueAnalysisResponse extends PhysiqueAnalysisResult {}
 
 // Form Analysis Metrics
 export interface JointAngle {
