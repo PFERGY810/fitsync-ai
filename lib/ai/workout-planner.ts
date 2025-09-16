@@ -4,7 +4,7 @@ import { WorkoutPlanRequest, WorkoutPlanResponse, PhysiqueAnalysisResponse } fro
 export class WorkoutPlannerService {
   async generateWorkoutPlan(
     request: WorkoutPlanRequest & { userStats?: any },
-    physiqueAnalysis: PhysiqueAnalysisResponse | null
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null
   ): Promise<WorkoutPlanResponse> {
     try {
       // Build comprehensive prompt for AI workout planning
@@ -29,7 +29,7 @@ export class WorkoutPlannerService {
 
   private buildWorkoutPlanPrompt(
     request: WorkoutPlanRequest & { userStats?: any },
-    physiqueAnalysis: PhysiqueAnalysisResponse | null
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null
   ): string {
     const { goal, experience, daysPerWeek, timePerSession, equipment, preferences, limitations, userStats } = request;
     
@@ -103,7 +103,7 @@ Format the response as a structured JSON object with detailed exercise prescript
   private enhanceWorkoutPlan(
     response: any, 
     request: WorkoutPlanRequest,
-    physiqueAnalysis: PhysiqueAnalysisResponse | null
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null
   ): WorkoutPlanResponse {
     // Ensure the plan has all required properties
     const enhancedPlan = {
@@ -607,7 +607,7 @@ Format the response as a structured JSON object with detailed exercise prescript
   private createStructuredPlanFromText(
     responseText: string,
     request: WorkoutPlanRequest & { userStats?: any },
-    physiqueAnalysis: PhysiqueAnalysisResponse | null
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null
   ): WorkoutPlanResponse {
     // Fallback parsing logic for unstructured responses
     return this.getFallbackWorkoutPlan(request);
@@ -616,7 +616,7 @@ Format the response as a structured JSON object with detailed exercise prescript
   private enhanceSchedule(
     schedule: any[],
     request: WorkoutPlanRequest & { userStats?: any },
-    physiqueAnalysis: PhysiqueAnalysisResponse | null
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null
   ) {
     if (!schedule || schedule.length === 0) {
       return this.generateDefaultSchedule(request);
@@ -719,7 +719,7 @@ Format the response as a structured JSON object with detailed exercise prescript
 
   private generateNutritionTips(
     request: WorkoutPlanRequest & { userStats?: any },
-    physiqueAnalysis: PhysiqueAnalysisResponse | null
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null
   ): string[] {
     const { goal } = request;
     const baseTips = [

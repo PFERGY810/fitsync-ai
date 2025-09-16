@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
 import { validateBody, schemas } from '../middleware/validation';
 import { PhysiqueAnalysisService } from '../services/physique-analysis';
-import { PhysiqueAnalysisRequest } from '@/types/ai';
+import type { PhysiqueAnalysisRequest } from '@/types/ai';
 
 type Variables = {
   userId: string;

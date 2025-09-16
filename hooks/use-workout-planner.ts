@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { workoutPlannerService } from '@/lib/ai/workout-planner';
 import { useAIStore } from '@/stores/ai-store';
 import { useUserStore } from '@/stores/user-store';
-import { WorkoutPlanRequest, WorkoutPlanResponse, PhysiqueAnalysisResult } from '@/types/ai';
+import { WorkoutPlanRequest, WorkoutPlanResponse, PhysiqueAnalysisResponse } from '@/types/ai';
 
 export const useWorkoutPlanner = () => {
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export const useWorkoutPlanner = () => {
         userStats: userProfile
       };
 
-      const plan = await workoutPlannerService.generateWorkoutPlan(enhancedRequest, currentPhysiqueAnalysis as PhysiqueAnalysisResult | null);
+      const plan = await workoutPlannerService.generateWorkoutPlan(enhancedRequest, currentPhysiqueAnalysis);
       setCurrentWorkoutPlan(plan);
       
       return plan;
@@ -64,7 +64,7 @@ export const useWorkoutPlanner = () => {
       }
       
       // Include specific focus on weak points in the request
-      const weakPointFocus = currentPhysiqueAnalysis.weakPoints?.map((wp) => `Focus on ${wp}`) || [];
+      const weakPointFocus = currentPhysiqueAnalysis.weakPoints?.map((wp: string) => `Focus on ${wp}`) || [];
       
       return generatePlan({
         goal: primaryGoal,

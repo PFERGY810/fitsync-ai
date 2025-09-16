@@ -1,8 +1,8 @@
 import { aiClient } from './ai-client';
-import { MuscleGroupAnalysis, PhysiqueAnalysisResult } from '@/types/ai';
+import { MuscleGroupAnalysis, PhysiqueAnalysisResponse } from '@/types/ai';
 
 export class PhysiqueAnalyzerService {
-  async analyzePhysique(imageUri: string, poseType: string, userProfile: any): Promise<PhysiqueAnalysisResult> {
+  async analyzePhysique(imageUri: string, poseType: string, userProfile: any): Promise<PhysiqueAnalysisResponse> {
     try {
       // Build comprehensive prompt for AI analysis
       const prompt = this.buildPhysiqueAnalysisPrompt(poseType, userProfile, imageUri);
@@ -83,7 +83,7 @@ Format your response as a structured JSON object with the following schema:
     return prompt;
   }
 
-  private createStructuredAnalysisFromText(responseText: string, poseType: string): PhysiqueAnalysisResult {
+  private createStructuredAnalysisFromText(responseText: string, poseType: string): PhysiqueAnalysisResponse {
     // Extract metrics using regex patterns
     const muscleMassMatch = responseText.match(/muscle mass.*?(\d+)/i);
     const bodyFatMatch = responseText.match(/body fat.*?(\d+)/i);
@@ -158,7 +158,7 @@ Format your response as a structured JSON object with the following schema:
     };
   }
 
-  private enhancePhysiqueAnalysis(response: any, poseType: string): PhysiqueAnalysisResult {
+  private enhancePhysiqueAnalysis(response: any, poseType: string): PhysiqueAnalysisResponse {
     // Get visible muscle groups based on pose type
     const muscleGroups = response.muscleGroups || this.getVisibleMuscleGroupsForPose(poseType);
     
@@ -275,7 +275,7 @@ Format your response as a structured JSON object with the following schema:
     return Math.floor(Math.random() * 15) + 10;
   }
 
-  private getFallbackAnalysis(poseType: string, userProfile: any): PhysiqueAnalysisResult {
+  private getFallbackAnalysis(poseType: string, userProfile: any): PhysiqueAnalysisResponse {
     const muscleGroups = this.getVisibleMuscleGroupsForPose(poseType);
     
     // Calculate weak points (muscle groups with development < 6)

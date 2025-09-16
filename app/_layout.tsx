@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
 
@@ -6,35 +6,31 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const { isOnboardingCompleted } = useUserStore();
-  const [isNavigationReady, setIsNavigationReady] = useState(false);
   
   useEffect(() => {
-    // Wait for navigation to be ready
-    const timer = setTimeout(() => {
-      setIsNavigationReady(true);
-    }, 100);
-    
-    return () => clearTimeout(timer);
-  }, []);
-  
-  useEffect(() => {
-    if (!isNavigationReady) return;
+    // Only navigate after the first render and when segments are available
+    if (segments.length < 1) return;
     
     // Check if the user has completed onboarding
     const inOnboarding = segments[0] === 'onboarding';
     const inPhysiqueSetup = segments[0] === 'physique-setup';
     const inPhysiqueResults = segments[0] === 'physique-results';
     
-    // If onboarding is not completed and user is not in onboarding, redirect to onboarding
-    if (!isOnboardingCompleted() && !inOnboarding && !inPhysiqueSetup && !inPhysiqueResults) {
-      router.replace('/onboarding');
-    }
+    // Use setTimeout to ensure navigation happens after mount
+    const timer = setTimeout(() => {
+      // If onboarding is not completed and user is not in onboarding, redirect to onboarding
+      if (!isOnboardingCompleted() && !inOnboarding && !inPhysiqueSetup && !inPhysiqueResults) {
+        router.replace('/onboarding');
+      }
+      
+      // If onboarding is completed and user is in onboarding, redirect to home
+      if (isOnboardingCompleted() && inOnboarding) {
+        router.replace('/(tabs)');
+      }
+    }, 0);
     
-    // If onboarding is completed and user is in onboarding, redirect to home
-    if (isOnboardingCompleted() && inOnboarding) {
-      router.replace('/(tabs)');
-    }
-  }, [segments, isOnboardingCompleted, router, isNavigationReady]);
+    return () => clearTimeout(timer);
+  }, [segments, isOnboardingCompleted, router]);
   
   return (
     <Stack

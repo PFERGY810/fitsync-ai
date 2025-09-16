@@ -4,7 +4,7 @@ import { NutritionRequest, NutritionResponse, PhysiqueAnalysisResponse } from '@
 export class NutritionAdvisorService {
   async generateNutritionPlan(
     request: NutritionRequest,
-    physiqueAnalysis: PhysiqueAnalysisResponse | null,
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null,
     zipCode: string = '',
     weeklyBudget: number = 100
   ): Promise<NutritionResponse> {
@@ -25,7 +25,7 @@ export class NutritionAdvisorService {
 
   private buildNutritionPlanPrompt(
     request: NutritionRequest,
-    physiqueAnalysis: PhysiqueAnalysisResponse | null,
+    physiqueAnalysis: PhysiqueAnalysisResponse | null = null,
     zipCode: string,
     weeklyBudget: number
   ): string {
