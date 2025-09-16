@@ -1,1 +1,109 @@
-import { Hono } from 'hono';\nimport { authMiddleware } from '../middleware/auth';\nimport { validateBody, schemas } from '../middleware/validation';\nimport { PhysiqueAnalysisService } from '../services/physique-analysis';\n\nconst physiqueRouter = new Hono();\nconst physiqueService = new PhysiqueAnalysisService();\n\n// Analyze physique photos\nphysiqueRouter.post(\n  '/analyze',\n  authMiddleware,\n  validateBody(schemas.physiqueAnalysis),\n  async (c) => {\n    try {\n      const validatedData = c.get('validatedData');\n      const userId = c.get('userId');\n      \n      console.log(`Analyzing physique for user ${userId}:`, validatedData.poseType);\n      \n      const analysis = await physiqueService.analyzePhysique(validatedData);\n      \n      // TODO: Save analysis to database with userId\n      \n      return c.json({\n        success: true,\n        data: analysis\n      });\n    } catch (error) {\n      console.error('Physique analysis error:', error);\n      return c.json({\n        success: false,\n        error: error instanceof Error ? error.message : 'Analysis failed'\n      }, 500);\n    }\n  }\n);\n\n// Get physique analysis history\nphysiqueRouter.get('/history', authMiddleware, async (c) => {\n  try {\n    const userId = c.get('userId');\n    \n    // TODO: Fetch from database\n    const mockHistory = [\n      {\n        id: '1',\n        poseType: 'front',\n        date: '2024-01-15',\n        metrics: {\n          muscleMass: 78,\n          bodyFat: 12,\n          symmetry: 8,\n          posture: 9,\n          overallConvexity: 7\n        }\n      }\n    ];\n    \n    return c.json({\n      success: true,\n      data: mockHistory\n    });\n  } catch (error) {\n    console.error('History fetch error:', error);\n    return c.json({\n      success: false,\n      error: 'Failed to fetch history'\n    }, 500);\n  }\n});\n\n// Compare two analyses\nphysiqueRouter.post('/compare', authMiddleware, async (c) => {\n  try {\n    const { currentId, previousId } = await c.req.json();\n    \n    // TODO: Fetch analyses from database and compare\n    // For now, return mock comparison\n    const comparison = {\n      timeframe: '30 days',\n      improvements: ['shoulders', 'chest'],\n      declines: [],\n      overallProgress: 'positive'\n    };\n    \n    return c.json({\n      success: true,\n      data: comparison\n    });\n  } catch (error) {\n    console.error('Comparison error:', error);\n    return c.json({\n      success: false,\n      error: 'Failed to compare analyses'\n    }, 500);\n  }\n});\n\nexport { physiqueRouter };
+import { Hono } from 'hono';
+import { authMiddleware } from '../middleware/auth';
+import { validateBody, schemas } from '../middleware/validation';
+import { PhysiqueAnalysisService } from '../services/physique-analysis';
+import { PhysiqueAnalysisRequest } from '@/types/ai';
+
+type Variables = {
+  userId: string;
+  userRole: 'free' | 'premium';
+  validatedData: PhysiqueAnalysisRequest;
+};
+
+const physiqueRouter = new Hono<{ Variables: Variables }>();
+const physiqueService = new PhysiqueAnalysisService();
+
+// Analyze physique photos
+physiqueRouter.post(
+  '/analyze',
+  authMiddleware,
+  validateBody(schemas.physiqueAnalysis),
+  async (c) => {
+    try {
+      const validatedData = c.get('validatedData');
+      const userId = c.get('userId');
+      
+      console.log(`Analyzing physique for user ${userId}:`, validatedData.poseType);
+      
+      const analysis = await physiqueService.analyzePhysique(validatedData);
+      
+      // TODO: Save analysis to database with userId
+      
+      return c.json({
+        success: true,
+        data: analysis
+      });
+    } catch (error) {
+      console.error('Physique analysis error:', error);
+      return c.json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Analysis failed'
+      }, 500);
+    }
+  }
+);
+
+// Get physique analysis history
+physiqueRouter.get('/history', authMiddleware, async (c) => {
+  try {
+    const userId = c.get('userId');
+    
+    console.log(`Fetching physique history for user: ${userId}`);
+    
+    // TODO: Fetch from database
+    const mockHistory = [
+      {
+        id: '1',
+        poseType: 'front',
+        date: '2024-01-15',
+        metrics: {
+          muscleMass: 78,
+          bodyFat: 12,
+          symmetry: 8,
+          posture: 9,
+          overallConvexity: 7
+        }
+      }
+    ];
+    
+    return c.json({
+      success: true,
+      data: mockHistory
+    });
+  } catch (error) {
+    console.error('History fetch error:', error);
+    return c.json({
+      success: false,
+      error: 'Failed to fetch history'
+    }, 500);
+  }
+});
+
+// Compare two analyses
+physiqueRouter.post('/compare', authMiddleware, async (c) => {
+  try {
+    const { currentId, previousId } = await c.req.json();
+    
+    console.log(`Comparing analyses: ${previousId} vs ${currentId}`);
+    
+    // TODO: Fetch analyses from database and compare
+    const comparison = {
+      improvements: ['Chest development', 'Shoulder width'],
+      regressions: [],
+      recommendations: ['Continue current chest routine', 'Add lateral raises']
+    };
+    
+    return c.json({
+      success: true,
+      data: comparison
+    });
+  } catch (error) {
+    console.error('Comparison error:', error);
+    return c.json({
+      success: false,
+      error: 'Failed to compare analyses'
+    }, 500);
+  }
+});
+
+export { physiqueRouter };

@@ -1,11 +1,10 @@
 import { aiClient } from './ai-client';
-import { NutritionRequest, NutritionResponse } from '@/types/ai';
-import { PhysiqueAnalysisResult } from './physique-analyzer';
+import { NutritionRequest, NutritionResponse, PhysiqueAnalysisResponse } from '@/types/ai';
 
 export class NutritionAdvisorService {
   async generateNutritionPlan(
     request: NutritionRequest,
-    physiqueAnalysis: PhysiqueAnalysisResult | null,
+    physiqueAnalysis: PhysiqueAnalysisResponse | null,
     zipCode: string = '',
     weeklyBudget: number = 100
   ): Promise<NutritionResponse> {
@@ -26,7 +25,7 @@ export class NutritionAdvisorService {
 
   private buildNutritionPlanPrompt(
     request: NutritionRequest,
-    physiqueAnalysis: PhysiqueAnalysisResult | null,
+    physiqueAnalysis: PhysiqueAnalysisResponse | null,
     zipCode: string,
     weeklyBudget: number
   ): string {
