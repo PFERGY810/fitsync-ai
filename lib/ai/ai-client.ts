@@ -60,7 +60,9 @@ class AIClient {
         .replace(/,\s*]/g, ']')
         // Fix common escape issues
         .replace(/\\n/g, '\\\\n')
-        .replace(/\\t/g, '\\\\t');
+        .replace(/\\t/g, '\\\\t')
+        // Remove any non-printable characters
+        .replace(/[\x00-\x1F\x7F-\x9F]/g, '');
       
       try {
         return JSON.parse(cleaned);
@@ -70,14 +72,21 @@ class AIClient {
           // Extract just the JSON object/array content
           const jsonMatch = cleaned.match(/{[\s\S]*}|\[[\s\S]*\]/);
           if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
+            let extracted = jsonMatch[0];
+            // Final cleanup on extracted JSON
+            extracted = extracted
+              .replace(/,\s*}/g, '}')
+              .replace(/,\s*]/g, ']')
+              .replace(/\\+"/g, '"');
+            return JSON.parse(extracted);
           }
-        } catch {
+        } catch (thirdError) {
           console.error('All JSON parsing attempts failed');
           console.error('Original:', sanitized.substring(0, 300));
           console.error('Cleaned:', cleaned.substring(0, 300));
           console.error('First error:', firstError instanceof Error ? firstError.message : String(firstError));
           console.error('Second error:', secondError instanceof Error ? secondError.message : String(secondError));
+          console.error('Third error:', thirdError instanceof Error ? thirdError.message : String(thirdError));
         }
         
         throw new Error('Invalid JSON response from AI - unable to parse after multiple attempts');
