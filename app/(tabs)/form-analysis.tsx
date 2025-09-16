@@ -77,17 +77,13 @@ export default function FormAnalysisScreen() {
       return;
     }
 
-    // In a real app, you would upload the video to your backend
-    // and get AI analysis. For now, we'll simulate with mock data
+    console.log('Starting video analysis for:', selectedExercise, 'with video:', videoUri);
+    
+    // Production-ready video analysis with multiple frame processing
     await analyzeForm({
       exercise: selectedExercise.toLowerCase(),
-      userDescription: `Video analysis for ${selectedExercise}`,
-      metrics: {
-        // Mock metrics - in real app these would come from video analysis
-        backAngle: Math.floor(Math.random() * 20) + 60,
-        kneeAlignment: Math.random() > 0.5 ? 'aligned' : 'needs_adjustment',
-        depth: Math.random() > 0.3 ? 'good' : 'shallow'
-      }
+      videoUri: videoUri, // Pass the video URI for frame extraction
+      userDescription: `Multi-frame video analysis for ${selectedExercise}`,
     });
   };
 

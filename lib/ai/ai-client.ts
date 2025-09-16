@@ -4,15 +4,31 @@ class AIClient {
   private baseUrl = 'https://toolkit.rork.com/text/llm/';
 
   private cleanJsonResponse(response: string): string {
+    if (!response || typeof response !== 'string') {
+      throw new Error('Invalid response format');
+    }
+
+    // Remove markdown code blocks if present
+    let cleaned = response.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    
     // Remove any text before the first { and after the last }
-    const firstBrace = response.indexOf('{');
-    const lastBrace = response.lastIndexOf('}');
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
     
     if (firstBrace === -1 || lastBrace === -1) {
-      throw new Error('No valid JSON found in response');
+      // Try to find array format
+      const firstBracket = cleaned.indexOf('[');
+      const lastBracket = cleaned.lastIndexOf(']');
+      
+      if (firstBracket === -1 || lastBracket === -1) {
+        console.error('No valid JSON found in response:', cleaned.substring(0, 200));
+        throw new Error('No valid JSON found in response');
+      }
+      
+      return cleaned.substring(firstBracket, lastBracket + 1);
     }
     
-    return response.substring(firstBrace, lastBrace + 1);
+    return cleaned.substring(firstBrace, lastBrace + 1);
   }
 
   private parseJsonSafely(jsonString: string): any {
@@ -20,7 +36,7 @@ class AIClient {
       throw new Error('Empty JSON string provided');
     }
     
-    if (jsonString.length > 50000) {
+    if (jsonString.length > 100000) {
       throw new Error('JSON string too large');
     }
     
@@ -28,19 +44,43 @@ class AIClient {
     
     try {
       return JSON.parse(sanitized);
-    } catch {
+    } catch (firstError) {
+      console.log('Initial JSON parse failed, attempting to fix common issues...');
+      
       // Try to fix common JSON issues
       let cleaned = sanitized
-        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":') // Add quotes to unquoted keys
-        .replace(/:\s*([a-zA-Z_][a-zA-Z0-9_]*)(\s*[,}])/g, ': "$1"$2') // Add quotes to unquoted string values
-        .replace(/,\s*}/g, '}') // Remove trailing commas
-        .replace(/,\s*]/g, ']'); // Remove trailing commas in arrays
+        // Remove any trailing text after the JSON
+        .replace(/}[^}]*$/, '}')
+        // Fix unquoted keys
+        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+        // Fix single quotes to double quotes
+        .replace(/'/g, '"')
+        // Remove trailing commas
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']')
+        // Fix common escape issues
+        .replace(/\\n/g, '\\\\n')
+        .replace(/\\t/g, '\\\\t');
       
       try {
         return JSON.parse(cleaned);
-      } catch {
-        console.error('Failed to parse JSON:', sanitized.substring(0, 200) + '...');
-        throw new Error('Invalid JSON response from AI');
+      } catch (secondError) {
+        // Try one more aggressive cleaning
+        try {
+          // Extract just the JSON object/array content
+          const jsonMatch = cleaned.match(/{[\s\S]*}|\[[\s\S]*\]/);
+          if (jsonMatch) {
+            return JSON.parse(jsonMatch[0]);
+          }
+        } catch {
+          console.error('All JSON parsing attempts failed');
+          console.error('Original:', sanitized.substring(0, 300));
+          console.error('Cleaned:', cleaned.substring(0, 300));
+          console.error('First error:', firstError instanceof Error ? firstError.message : String(firstError));
+          console.error('Second error:', secondError instanceof Error ? secondError.message : String(secondError));
+        }
+        
+        throw new Error('Invalid JSON response from AI - unable to parse after multiple attempts');
       }
     }
   }
@@ -83,7 +123,11 @@ class AIClient {
     ];
 
     const response = await this.generateText(messages);
+    console.log('Raw AI response (first 500 chars):', response.substring(0, 500));
+    
     const cleanedResponse = this.cleanJsonResponse(response);
+    console.log('Cleaned JSON (first 500 chars):', cleanedResponse.substring(0, 500));
+    
     return this.parseJsonSafely(cleanedResponse);
   }
 
@@ -103,7 +147,11 @@ class AIClient {
     ];
 
     const response = await this.generateText(messages);
+    console.log('Raw AI response (first 500 chars):', response.substring(0, 500));
+    
     const cleanedResponse = this.cleanJsonResponse(response);
+    console.log('Cleaned JSON (first 500 chars):', cleanedResponse.substring(0, 500));
+    
     return this.parseJsonSafely(cleanedResponse);
   }
 

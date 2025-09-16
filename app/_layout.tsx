@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -10,41 +10,39 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const { isOnboardingCompleted } = useUserStore();
-  const [isNavigationReady, setIsNavigationReady] = useState(false);
   
   useEffect(() => {
-    // Set navigation ready after a short delay to ensure the layout is mounted
-    const timer = setTimeout(() => {
-      setIsNavigationReady(true);
-    }, 100);
+    // Use requestAnimationFrame to ensure navigation happens after layout is ready
+    const handleNavigation = () => {
+      requestAnimationFrame(() => {
+        try {
+          // Check if the user has completed onboarding
+          const inOnboarding = segments[0] === 'onboarding';
+          const inPhysiqueSetup = segments[0] === 'physique-setup';
+          const inPhysiqueResults = segments[0] === 'physique-results';
+          
+          // If onboarding is not completed and user is not in onboarding flows, redirect to onboarding
+          if (!isOnboardingCompleted() && !inOnboarding && !inPhysiqueSetup && !inPhysiqueResults) {
+            console.log('Redirecting to onboarding - not completed');
+            router.replace('/onboarding');
+          }
+          
+          // If onboarding is completed and user is in onboarding, redirect to home
+          if (isOnboardingCompleted() && inOnboarding) {
+            console.log('Redirecting to tabs - onboarding completed');
+            router.replace('/(tabs)');
+          }
+        } catch (error) {
+          console.error('Navigation error:', error);
+        }
+      });
+    };
     
-    return () => clearTimeout(timer);
-  }, []);
-  
-  useEffect(() => {
-    // Only navigate after navigation is ready
-    if (!isNavigationReady) return;
-    
-    // Add a small delay to ensure segments are populated
-    const timer = setTimeout(() => {
-      // Check if the user has completed onboarding
-      const inOnboarding = segments[0] === 'onboarding';
-      const inPhysiqueSetup = segments[0] === 'physique-setup';
-      const inPhysiqueResults = segments[0] === 'physique-results';
-      
-      // If onboarding is not completed and user is not in onboarding flows, redirect to onboarding
-      if (!isOnboardingCompleted() && !inOnboarding && !inPhysiqueSetup && !inPhysiqueResults) {
-        router.replace('/onboarding');
-      }
-      
-      // If onboarding is completed and user is in onboarding, redirect to home
-      if (isOnboardingCompleted() && inOnboarding) {
-        router.replace('/(tabs)');
-      }
-    }, 50);
-    
-    return () => clearTimeout(timer);
-  }, [segments, isOnboardingCompleted, router, isNavigationReady]);
+    // Only run navigation logic if we have segments
+    if (segments.length > 0) {
+      handleNavigation();
+    }
+  }, [segments, isOnboardingCompleted, router]);
   
   return (
     <Stack

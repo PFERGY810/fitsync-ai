@@ -1,11 +1,19 @@
 export interface FormAnalysisRequest {
   exercise: string;
+  videoUri?: string;
   userDescription?: string;
   metrics?: {
     backAngle?: number;
     kneeAlignment?: string;
     depth?: string;
     duration?: number;
+    frameCount?: number;
+    consistency?: number;
+    barPath?: string;
+    lockout?: string;
+    armAngle?: number;
+    backArch?: string;
+    overallForm?: number;
   };
   userProfile?: {
     experience: 'beginner' | 'intermediate' | 'advanced';
