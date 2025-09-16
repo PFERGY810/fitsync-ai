@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { physiqueAnalyzerService } from '@/lib/ai/physique-analyzer';
 import { useAIStore } from '@/stores/ai-store';
 import { useUserStore } from '@/stores/user-store';
-import { PhysiqueAnalysisRequest, PhysiqueAnalysisResponse } from '@/types/ai';
+import { PhysiqueAnalysisRequest, PhysiqueAnalysisResult } from '@/types/ai';
 
 export const usePhysiqueAnalysis = () => {
-  const [currentAnalysis, setCurrentAnalysis] = useState<PhysiqueAnalysisResponse | null>(null);
-  const [progressHistory, setProgressHistory] = useState<PhysiqueAnalysisResponse[]>([]);
+  const [currentAnalysis, setCurrentAnalysis] = useState<PhysiqueAnalysisResult | null>(null);
+  const [progressHistory, setProgressHistory] = useState<PhysiqueAnalysisResult[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -17,7 +17,7 @@ export const usePhysiqueAnalysis = () => {
     currentPhysiqueAnalysis
   } = useAIStore();
 
-  const analyzePhysique = async (request: PhysiqueAnalysisRequest): Promise<PhysiqueAnalysisResponse | null> => {
+  const analyzePhysique = async (request: PhysiqueAnalysisRequest): Promise<PhysiqueAnalysisResult | null> => {
     try {
       setError(null);
       setIsAnalyzing(true);

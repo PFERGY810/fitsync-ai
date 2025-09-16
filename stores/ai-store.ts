@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { FormAnalysisResponse, WorkoutPlanResponse, NutritionResponse, PhysiqueAnalysisResponse } from '@/types/ai';
+import { FormAnalysisResponse, WorkoutPlanResponse, NutritionResponse, PhysiqueAnalysisResult } from '@/types/ai';
 
 interface AIState {
   // Form Analysis
@@ -10,8 +10,8 @@ interface AIState {
   isAnalyzingForm: boolean;
   
   // Physique Analysis
-  currentPhysiqueAnalysis: PhysiqueAnalysisResponse | null;
-  physiqueAnalysisHistory: PhysiqueAnalysisResponse[];
+  currentPhysiqueAnalysis: PhysiqueAnalysisResult | null;
+  physiqueAnalysisHistory: PhysiqueAnalysisResult[];
   isAnalyzingPhysique: boolean;
   
   // Workout Planning
@@ -36,8 +36,8 @@ interface AIState {
   addFormAnalysisToHistory: (analysis: FormAnalysisResponse) => void;
   setIsAnalyzingForm: (isAnalyzing: boolean) => void;
   
-  setCurrentPhysiqueAnalysis: (analysis: PhysiqueAnalysisResponse) => void;
-  addPhysiqueAnalysisToHistory: (analysis: PhysiqueAnalysisResponse) => void;
+  setCurrentPhysiqueAnalysis: (analysis: PhysiqueAnalysisResult) => void;
+  addPhysiqueAnalysisToHistory: (analysis: PhysiqueAnalysisResult) => void;
   setIsAnalyzingPhysique: (isAnalyzing: boolean) => void;
   
   setCurrentWorkoutPlan: (plan: WorkoutPlanResponse) => void;

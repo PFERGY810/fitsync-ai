@@ -141,7 +141,7 @@ export interface MealSuggestion {
 
 export interface AIMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string | Array<{ type: 'text' | 'image'; text?: string; image?: string }>;
+  content: string | { type: 'text' | 'image'; text?: string; image?: string }[];
 }
 
 export interface AIResponse {

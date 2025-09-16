@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
 
@@ -6,8 +6,20 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const { isOnboardingCompleted } = useUserStore();
+  const [isNavigationReady, setIsNavigationReady] = useState(false);
   
   useEffect(() => {
+    // Wait for navigation to be ready
+    const timer = setTimeout(() => {
+      setIsNavigationReady(true);
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
+  
+  useEffect(() => {
+    if (!isNavigationReady) return;
+    
     // Check if the user has completed onboarding
     const inOnboarding = segments[0] === 'onboarding';
     const inPhysiqueSetup = segments[0] === 'physique-setup';
@@ -22,7 +34,7 @@ function RootLayoutNav() {
     if (isOnboardingCompleted() && inOnboarding) {
       router.replace('/(tabs)');
     }
-  }, [segments, isOnboardingCompleted, router]);
+  }, [segments, isOnboardingCompleted, router, isNavigationReady]);
   
   return (
     <Stack
