@@ -11,18 +11,13 @@ export class WorkoutPlannerService {
       const prompt = this.buildWorkoutPlanPrompt(request, physiqueAnalysis);
       
       // Get AI-generated workout plan
-      const response = await aiClient.generateWorkoutPlan(prompt);
+      const parsedResponse = await aiClient.generateWorkoutPlan(prompt);
       
-      // Parse and enhance the response
-      try {
-        const parsedResponse = JSON.parse(response);
-        return this.enhanceWorkoutPlan(parsedResponse, request, physiqueAnalysis);
-      } catch (parseError) {
-        console.error('Error parsing workout plan response:', parseError);
-        return this.createStructuredPlanFromText(response, request, physiqueAnalysis);
-      }
+      // Enhance the response
+      return this.enhanceWorkoutPlan(parsedResponse, request, physiqueAnalysis);
     } catch (error) {
       console.error('Workout plan generation error:', error);
+      // Return fallback plan if AI fails
       return this.getFallbackWorkoutPlan(request);
     }
   }

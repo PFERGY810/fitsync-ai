@@ -13,12 +13,13 @@ export class NutritionAdvisorService {
       const prompt = this.buildNutritionPlanPrompt(request, physiqueAnalysis, zipCode, weeklyBudget);
       
       // Get AI-generated nutrition plan
-      const response = await aiClient.generateNutritionPlan(prompt);
+      const parsedResponse = await aiClient.generateNutritionPlan(prompt);
       
-      // Parse and enhance the response
-      return this.enhanceNutritionPlan(JSON.parse(response), request, weeklyBudget);
+      // Enhance the response
+      return this.enhanceNutritionPlan(parsedResponse, request, weeklyBudget);
     } catch (error) {
       console.error('Nutrition plan generation error:', error);
+      // Return fallback plan if AI fails
       return this.getFallbackNutritionPlan(request, weeklyBudget);
     }
   }
