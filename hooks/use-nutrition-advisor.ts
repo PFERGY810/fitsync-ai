@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { nutritionAdvisorService } from '@/lib/ai/nutrition-advisor';
 import { useAIStore } from '@/stores/ai-store';
 import { useUserStore } from '@/stores/user-store';
-import { NutritionRequest, NutritionResponse, PhysiqueAnalysisResponse } from '@/types/ai';
+import { NutritionRequest, NutritionResponse, PhysiqueAnalysisResult } from '@/types/ai';
 
 export const useNutritionAdvisor = () => {
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +28,7 @@ export const useNutritionAdvisor = () => {
 
       const plan = await nutritionAdvisorService.generateNutritionPlan(
         request, 
-        currentPhysiqueAnalysis,
+        currentPhysiqueAnalysis as PhysiqueAnalysisResult | null,
         zipCode,
         weeklyBudget
       );

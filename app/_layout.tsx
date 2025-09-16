@@ -1,25 +1,38 @@
 import { useEffect, useState } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter, useSegments, useNavigationContainerRef } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
 
 function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
+  const navigationRef = useNavigationContainerRef();
   const { isOnboardingCompleted } = useUserStore();
   const [isNavigationReady, setIsNavigationReady] = useState(false);
   
   useEffect(() => {
     // Wait for navigation to be ready
-    const timer = setTimeout(() => {
-      setIsNavigationReady(true);
-    }, 100);
+    let timeoutId: NodeJS.Timeout;
     
-    return () => clearTimeout(timer);
-  }, []);
+    const checkNavigation = () => {
+      if (navigationRef?.isReady()) {
+        setIsNavigationReady(true);
+      } else {
+        timeoutId = setTimeout(checkNavigation, 50);
+      }
+    };
+    
+    checkNavigation();
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [navigationRef]);
   
   useEffect(() => {
     // Only navigate after navigation is ready and segments are available
-    if (!isNavigationReady || segments.length < 1) return;
+    if (!isNavigationReady || !navigationRef?.isReady()) return;
     
     // Check if the user has completed onboarding
     const inOnboarding = segments[0] === 'onboarding';
@@ -35,7 +48,7 @@ function RootLayoutNav() {
     if (isOnboardingCompleted() && inOnboarding) {
       router.replace('/(tabs)');
     }
-  }, [segments, isOnboardingCompleted, router, isNavigationReady]);
+  }, [segments, isOnboardingCompleted, router, isNavigationReady, navigationRef]);
   
   return (
     <Stack
