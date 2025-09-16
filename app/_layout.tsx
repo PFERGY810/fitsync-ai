@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments, useNavigationContainerRef } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { trpc, trpcClient } from '@/lib/trpc';
+
+const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   const segments = useSegments();
@@ -71,5 +75,11 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
-  return <RootLayoutNav />;
+  return (
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <RootLayoutNav />
+      </QueryClientProvider>
+    </trpc.Provider>
+  );
 }
