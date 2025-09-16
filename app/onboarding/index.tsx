@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Animated, Dimensions } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Animated } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUserStore } from '@/stores/user-store';
 import { useAIStore } from '@/stores/ai-store';
 import { ChevronRight } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const { width } = Dimensions.get('window');
+
 
 // Experience level options
 const EXPERIENCE_LEVELS = [
@@ -35,6 +36,7 @@ const EQUIPMENT = [
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { updateUserProfile } = useUserStore();
   const { updateUserProfile: updateAIProfile } = useAIStore();
   
@@ -72,7 +74,7 @@ export default function OnboardingScreen() {
         useNativeDriver: true,
       })
     ]).start();
-  }, []);
+  }, [fadeAnim, translateAnim]);
   
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -158,21 +160,11 @@ export default function OnboardingScreen() {
   
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { paddingTop: insets.top }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+      keyboardVerticalOffset={0}
     >
-      <Stack.Screen 
-        options={{
-          title: 'FitSync AI',
-          headerStyle: {
-            backgroundColor: '#0A0A0A',
-          },
-          headerTintColor: '#fff',
-        }}
-      />
-      
-      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.contentContainer}>
+      <ScrollView style={styles.scrollContainer} contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 40 }]}>
         <Animated.View style={[
           styles.headerContainer,
           {
@@ -419,7 +411,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 20,
-    paddingBottom: 40,
   },
   headerContainer: {
     marginBottom: 24,
