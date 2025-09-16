@@ -9,26 +9,32 @@ class AIClient {
     }
 
     // Remove markdown code blocks if present
-    let cleaned = response.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    let cleaned = response.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
     
-    // Remove any text before the first { and after the last }
+    // Remove common AI response prefixes
+    cleaned = cleaned.replace(/^[^{\[]*(?={|\[)/, '');
+    
+    // Remove any text after the last } or ]
+    cleaned = cleaned.replace(/(?<=}|\])[^}\]]*$/, '');
+    
+    // Try to find JSON object first
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
     
-    if (firstBrace === -1 || lastBrace === -1) {
-      // Try to find array format
-      const firstBracket = cleaned.indexOf('[');
-      const lastBracket = cleaned.lastIndexOf(']');
-      
-      if (firstBracket === -1 || lastBracket === -1) {
-        console.error('No valid JSON found in response:', cleaned.substring(0, 200));
-        throw new Error('No valid JSON found in response');
-      }
-      
+    if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
+      return cleaned.substring(firstBrace, lastBrace + 1);
+    }
+    
+    // Try to find array format
+    const firstBracket = cleaned.indexOf('[');
+    const lastBracket = cleaned.lastIndexOf(']');
+    
+    if (firstBracket !== -1 && lastBracket !== -1 && firstBracket < lastBracket) {
       return cleaned.substring(firstBracket, lastBracket + 1);
     }
     
-    return cleaned.substring(firstBrace, lastBrace + 1);
+    console.error('No valid JSON found in response:', cleaned.substring(0, 300));
+    throw new Error('No valid JSON found in response');
   }
 
   private parseJsonSafely(jsonString: string): any {
@@ -40,57 +46,67 @@ class AIClient {
       throw new Error('JSON string too large');
     }
     
-    const sanitized = jsonString.trim();
+    let sanitized = jsonString.trim();
+    
+    // Remove any BOM or invisible characters
+    sanitized = sanitized.replace(/^\uFEFF/, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
     
     try {
       return JSON.parse(sanitized);
     } catch (firstError) {
       console.log('Initial JSON parse failed, attempting to fix common issues...');
       
-      // Try to fix common JSON issues
-      let cleaned = sanitized
-        // Remove any trailing text after the JSON
-        .replace(/}[^}]*$/, '}')
-        // Fix unquoted keys
-        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-        // Fix single quotes to double quotes
-        .replace(/'/g, '"')
-        // Remove trailing commas
-        .replace(/,\s*}/g, '}')
-        .replace(/,\s*]/g, ']')
-        // Fix common escape issues
-        .replace(/\\n/g, '\\\\n')
-        .replace(/\\t/g, '\\\\t')
-        // Remove any non-printable characters
-        .replace(/[\x00-\x1F\x7F-\x9F]/g, '');
-      
-      try {
-        return JSON.parse(cleaned);
-      } catch (secondError) {
-        // Try one more aggressive cleaning
-        try {
-          // Extract just the JSON object/array content
-          const jsonMatch = cleaned.match(/{[\s\S]*}|\[[\s\S]*\]/);
-          if (jsonMatch) {
-            let extracted = jsonMatch[0];
-            // Final cleanup on extracted JSON
-            extracted = extracted
-              .replace(/,\s*}/g, '}')
-              .replace(/,\s*]/g, ']')
-              .replace(/\\+"/g, '"');
-            return JSON.parse(extracted);
-          }
-        } catch (thirdError) {
-          console.error('All JSON parsing attempts failed');
-          console.error('Original:', sanitized.substring(0, 300));
-          console.error('Cleaned:', cleaned.substring(0, 300));
-          console.error('First error:', firstError instanceof Error ? firstError.message : String(firstError));
-          console.error('Second error:', secondError instanceof Error ? secondError.message : String(secondError));
-          console.error('Third error:', thirdError instanceof Error ? thirdError.message : String(thirdError));
-        }
+      // Progressive cleaning attempts
+      const cleaningSteps = [
+        // Step 1: Basic cleanup
+        (str: string) => str
+          .replace(/}[^}]*$/, '}') // Remove trailing text after JSON
+          .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":') // Quote unquoted keys
+          .replace(/'/g, '"') // Single to double quotes
+          .replace(/,\s*([}\]])/g, '$1') // Remove trailing commas
+          .replace(/[\x00-\x1F\x7F-\x9F]/g, ''), // Remove control characters
         
-        throw new Error('Invalid JSON response from AI - unable to parse after multiple attempts');
+        // Step 2: Fix escape sequences
+        (str: string) => str
+          .replace(/\\n/g, '\\\\n')
+          .replace(/\\t/g, '\\\\t')
+          .replace(/\\r/g, '\\\\r')
+          .replace(/\\"/g, '\\\\"'),
+        
+        // Step 3: Extract JSON pattern
+        (str: string) => {
+          const match = str.match(/{[\s\S]*}|\[[\s\S]*\]/);
+          return match ? match[0] : str;
+        },
+        
+        // Step 4: Aggressive cleanup
+        (str: string) => str
+          .replace(/\\+"/g, '"')
+          .replace(/"\s*:\s*"([^"]*)"/g, (match, value) => {
+            // Fix escaped quotes in string values
+            return `"${value.replace(/"/g, '\\"')}"`;
+          })
+      ];
+      
+      let cleaned = sanitized;
+      for (let i = 0; i < cleaningSteps.length; i++) {
+        try {
+          cleaned = cleaningSteps[i](cleaned);
+          const parsed = JSON.parse(cleaned);
+          console.log(`JSON parsing succeeded after step ${i + 1}`);
+          return parsed;
+        } catch (stepError) {
+          console.log(`Step ${i + 1} failed:`, stepError instanceof Error ? stepError.message : String(stepError));
+          continue;
+        }
       }
+      
+      console.error('All JSON parsing attempts failed');
+      console.error('Original (first 300 chars):', sanitized.substring(0, 300));
+      console.error('Final cleaned (first 300 chars):', cleaned.substring(0, 300));
+      console.error('Parse error:', firstError instanceof Error ? firstError.message : String(firstError));
+      
+      throw new Error(`Invalid JSON response from AI: ${firstError instanceof Error ? firstError.message : String(firstError)}`);
     }
   }
 

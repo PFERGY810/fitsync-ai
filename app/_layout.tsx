@@ -11,49 +11,76 @@ function RootLayoutNav() {
   const router = useRouter();
   const { isOnboardingCompleted } = useUserStore();
   const [isNavigationReady, setIsNavigationReady] = useState(false);
+  const [hasNavigated, setHasNavigated] = useState(false);
   
   useEffect(() => {
     // Wait for the navigation to be ready
     const timer = setTimeout(() => {
       setIsNavigationReady(true);
-    }, 100);
+    }, 200);
     
     return () => clearTimeout(timer);
   }, []);
   
   useEffect(() => {
-    if (!isNavigationReady || !segments || segments.length < 1) {
+    if (!isNavigationReady || hasNavigated) {
       return;
     }
     
     const handleNavigation = () => {
       try {
-        // Check if the user has completed onboarding
-        const inOnboarding = segments[0] === 'onboarding';
-        const inPhysiqueSetup = segments[0] === 'physique-setup';
-        const inPhysiqueResults = segments[0] === 'physique-results';
-        // const inTabs = segments[0] === '(tabs)';
+        // Get current route info
+        const currentSegment = segments?.[0];
+        const onboardingCompleted = isOnboardingCompleted();
         
-        // If onboarding is not completed and user is not in onboarding flows, redirect to onboarding
-        if (!isOnboardingCompleted() && !inOnboarding && !inPhysiqueSetup && !inPhysiqueResults) {
+        // Define onboarding-related routes
+        const onboardingRoutes = ['onboarding', 'physique-setup', 'physique-results'];
+        const isInOnboardingFlow = currentSegment && onboardingRoutes.includes(currentSegment);
+        
+        console.log('Navigation check:', {
+          currentSegment,
+          onboardingCompleted,
+          isInOnboardingFlow,
+          segments
+        });
+        
+        // If onboarding is not completed and user is not in onboarding flows
+        if (!onboardingCompleted && !isInOnboardingFlow) {
           console.log('Redirecting to onboarding - not completed');
+          setHasNavigated(true);
           router.replace('/onboarding');
+          return;
         }
         
-        // If onboarding is completed and user is in onboarding, redirect to home
-        else if (isOnboardingCompleted() && inOnboarding) {
+        // If onboarding is completed and user is in onboarding flow
+        if (onboardingCompleted && isInOnboardingFlow) {
           console.log('Redirecting to tabs - onboarding completed');
+          setHasNavigated(true);
           router.replace('/(tabs)');
+          return;
+        }
+        
+        // If no segments (root), redirect based on onboarding status
+        if (!currentSegment || currentSegment === '') {
+          if (onboardingCompleted) {
+            console.log('Redirecting to tabs from root');
+            setHasNavigated(true);
+            router.replace('/(tabs)');
+          } else {
+            console.log('Redirecting to onboarding from root');
+            setHasNavigated(true);
+            router.replace('/onboarding');
+          }
         }
       } catch (error) {
         console.error('Navigation error:', error);
       }
     };
     
-    // Use a small delay to ensure the router is ready
-    const navigationTimer = setTimeout(handleNavigation, 50);
+    // Use a delay to ensure the router is fully ready
+    const navigationTimer = setTimeout(handleNavigation, 100);
     return () => clearTimeout(navigationTimer);
-  }, [segments, isOnboardingCompleted, router, isNavigationReady]);
+  }, [segments, isOnboardingCompleted, router, isNavigationReady, hasNavigated]);
   
   return (
     <Stack

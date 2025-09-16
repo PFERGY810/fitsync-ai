@@ -82,16 +82,24 @@ export const PhysiqueUploader = () => {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
+      const imageUri = result.assets[0].uri;
+      
+      // Validate URI is not empty
+      if (!imageUri || imageUri.trim() === '') {
+        console.error('Invalid image URI received');
+        return;
+      }
+      
       setPhotos(prev => ({
         ...prev,
-        [currentPoseType]: result.assets[0].uri
+        [currentPoseType]: imageUri
       }));
       
       // Check if all required photos are uploaded
       const requiredPoses = poseTypes.map(pose => pose.id);
-      const updatedPhotos = { ...photos, [currentPoseType]: result.assets[0].uri };
+      const updatedPhotos = { ...photos, [currentPoseType]: imageUri };
       
-      const allUploaded = requiredPoses.every(pose => updatedPhotos[pose]);
+      const allUploaded = requiredPoses.every(pose => updatedPhotos[pose] && updatedPhotos[pose].trim() !== '');
       setUploadComplete(allUploaded);
       
       // Move to next pose type if available
@@ -120,16 +128,24 @@ export const PhysiqueUploader = () => {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
+      const imageUri = result.assets[0].uri;
+      
+      // Validate URI is not empty
+      if (!imageUri || imageUri.trim() === '') {
+        console.error('Invalid image URI received');
+        return;
+      }
+      
       setPhotos(prev => ({
         ...prev,
-        [currentPoseType]: result.assets[0].uri
+        [currentPoseType]: imageUri
       }));
       
       // Check if all required photos are uploaded
       const requiredPoses = poseTypes.map(pose => pose.id);
-      const updatedPhotos = { ...photos, [currentPoseType]: result.assets[0].uri };
+      const updatedPhotos = { ...photos, [currentPoseType]: imageUri };
       
-      const allUploaded = requiredPoses.every(pose => updatedPhotos[pose]);
+      const allUploaded = requiredPoses.every(pose => updatedPhotos[pose] && updatedPhotos[pose].trim() !== '');
       setUploadComplete(allUploaded);
       
       // Move to next pose type if available
@@ -151,13 +167,15 @@ export const PhysiqueUploader = () => {
       for (const poseType of poseTypes) {
         const imageUri = photos[poseType.id];
         
-        if (imageUri) {
+        if (imageUri && imageUri.trim() !== '') {
           const request: PhysiqueAnalysisRequest = {
             poseType: poseType.id,
-            imageUri,
+            imageUri: imageUri.trim(),
           };
           
           await analyzePhysique(request);
+        } else {
+          console.warn(`Skipping analysis for ${poseType.id} - no valid image URI`);
         }
       }
       
@@ -219,11 +237,20 @@ export const PhysiqueUploader = () => {
         </View>
         
         <View style={styles.photoContainer}>
-          {photos[currentPoseType] ? (
+          {photos[currentPoseType] && photos[currentPoseType].trim() !== '' ? (
             <Image 
               source={{ uri: photos[currentPoseType] }} 
               style={styles.photoPreview} 
               resizeMode="cover"
+              onError={(error) => {
+                console.error('Image load error:', error);
+                // Remove the invalid URI from photos
+                setPhotos(prev => {
+                  const updated = { ...prev };
+                  delete updated[currentPoseType];
+                  return updated;
+                });
+              }}
             />
           ) : (
             <View style={styles.placeholderContainer}>
