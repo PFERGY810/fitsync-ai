@@ -256,29 +256,33 @@ class AIClient {
           exercise science, periodization, and training methodologies. Create a detailed, personalized 
           workout plan based on the user's goals, experience level, and constraints. 
           
-          IMPORTANT: You must respond with ONLY a valid JSON object. Do not include any text before or after the JSON. 
-          The JSON should follow this exact structure:
+          CRITICAL: Respond with ONLY valid JSON. No text before or after.
+          IMPORTANT: Keep arrays short (2-3 items max) to avoid truncation.
+          
+          Use this EXACT structure:
           {
-            \"plan\": {
-              \"name\": \"string\",
-              \"duration\": \"string\",
-              \"description\": \"string\",
-              \"schedule\": []
+            "plan": {
+              "name": "string",
+              "duration": "string",
+              "description": "string",
+              "schedule": []
             },
-            \"nutrition\": {
-              \"dailyCalories\": number,
-              \"macros\": {
-                \"protein\": number,
-                \"carbs\": number,
-                \"fats\": number
+            "nutrition": {
+              "dailyCalories": number,
+              "macros": {
+                "protein": number,
+                "carbs": number,
+                "fats": number
               },
-              \"tips\": []
+              "tips": ["tip1", "tip2"]
             },
-            \"progressTracking\": {
-              \"metrics\": [],
-              \"checkpoints\": []
+            "progressTracking": {
+              "metrics": ["metric1", "metric2"],
+              "checkpoints": ["check1", "check2"]
             }
-          }`
+          }
+          
+          Keep strings SHORT (max 100 chars). Complete the JSON properly.`
         },
         {
           role: 'user',
@@ -325,9 +329,10 @@ class AIClient {
           sports nutrition, macronutrient requirements, and meal planning. Create a detailed, 
           personalized nutrition plan based on the user's goals, body metrics, and preferences. 
           
-          IMPORTANT: You must respond with ONLY a valid JSON object. Do not include any text before or after the JSON. 
-          Do not truncate the response. Complete all arrays properly.
-          The JSON should follow this exact structure:
+          CRITICAL: You must respond with ONLY a valid JSON object. No text before or after.
+          IMPORTANT: Keep arrays short (2-3 items max) to avoid truncation.
+          
+          Use this EXACT structure:
           {
             "dailyCalories": number,
             "macros": {
@@ -339,13 +344,13 @@ class AIClient {
               "breakfast": ["item1", "item2"],
               "lunch": ["item1", "item2"],
               "dinner": ["item1", "item2"],
-              "snacks": ["item1", "item2"]
+              "snacks": ["item1"]
             },
-            "tips": ["tip1", "tip2", "tip3"],
-            "supplements": ["supplement1", "supplement2"]
+            "tips": ["tip1", "tip2"],
+            "supplements": ["supp1", "supp2"]
           }
           
-          Keep meal items as simple strings, not objects. Keep the response concise but complete.`
+          Keep items SHORT (max 50 chars each). Complete the JSON properly.`
         },
         {
           role: 'user',
