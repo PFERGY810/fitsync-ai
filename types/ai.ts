@@ -163,26 +163,6 @@ export interface MuscleGroupAnalysis {
   notes: string;
 }
 
-// PhysiqueAnalysisResult interface
-export interface PhysiqueAnalysisResult {
-  poseType: string;
-  date: string;
-  metrics: {
-    muscleMass: number;
-    bodyFat: number;
-    symmetry: number;
-    posture: number;
-    overallConvexity: number;
-  };
-  insights: string[];
-  recommendations: string[];
-  muscleGroups: {
-    [key: string]: MuscleGroupAnalysis;
-  };
-  weakPoints: string[];
-  strengthPoints: string[];
-}
-
 // PhysiqueAnalysisResponse interface - matches what the AI service returns
 export interface PhysiqueAnalysisResponse {
   poseType: string;
@@ -202,6 +182,9 @@ export interface PhysiqueAnalysisResponse {
   weakPoints: string[];
   strengthPoints: string[];
 }
+
+// Type alias for compatibility
+export type PhysiqueAnalysisResult = PhysiqueAnalysisResponse;
 
 // Form Analysis Metrics
 export interface JointAngle {

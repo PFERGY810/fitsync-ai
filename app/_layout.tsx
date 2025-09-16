@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
 
@@ -6,31 +6,36 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
   const { isOnboardingCompleted } = useUserStore();
+  const [isNavigationReady, setIsNavigationReady] = useState(false);
   
   useEffect(() => {
-    // Only navigate after the first render and when segments are available
-    if (segments.length < 1) return;
+    // Wait for navigation to be ready
+    const timer = setTimeout(() => {
+      setIsNavigationReady(true);
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
+  
+  useEffect(() => {
+    // Only navigate after navigation is ready and segments are available
+    if (!isNavigationReady || segments.length < 1) return;
     
     // Check if the user has completed onboarding
     const inOnboarding = segments[0] === 'onboarding';
     const inPhysiqueSetup = segments[0] === 'physique-setup';
     const inPhysiqueResults = segments[0] === 'physique-results';
     
-    // Use setTimeout to ensure navigation happens after mount
-    const timer = setTimeout(() => {
-      // If onboarding is not completed and user is not in onboarding, redirect to onboarding
-      if (!isOnboardingCompleted() && !inOnboarding && !inPhysiqueSetup && !inPhysiqueResults) {
-        router.replace('/onboarding');
-      }
-      
-      // If onboarding is completed and user is in onboarding, redirect to home
-      if (isOnboardingCompleted() && inOnboarding) {
-        router.replace('/(tabs)');
-      }
-    }, 0);
+    // If onboarding is not completed and user is not in onboarding flows, redirect to onboarding
+    if (!isOnboardingCompleted() && !inOnboarding && !inPhysiqueSetup && !inPhysiqueResults) {
+      router.replace('/onboarding');
+    }
     
-    return () => clearTimeout(timer);
-  }, [segments, isOnboardingCompleted, router]);
+    // If onboarding is completed and user is in onboarding, redirect to home
+    if (isOnboardingCompleted() && inOnboarding) {
+      router.replace('/(tabs)');
+    }
+  }, [segments, isOnboardingCompleted, router, isNavigationReady]);
   
   return (
     <Stack
@@ -43,7 +48,12 @@ function RootLayoutNav() {
           backgroundColor: '#121212',
         },
       }}
-    />
+    >
+      <Stack.Screen name="onboarding/index" options={{ headerShown: false }} />
+      <Stack.Screen name="physique-setup/index" options={{ headerShown: false }} />
+      <Stack.Screen name="physique-results/index" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    </Stack>
   );
 }
 
