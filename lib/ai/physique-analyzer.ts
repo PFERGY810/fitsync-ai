@@ -7,18 +7,30 @@ export class PhysiqueAnalyzerService {
       // Build comprehensive prompt for AI analysis
       const prompt = this.buildPhysiqueAnalysisPrompt(poseType, userProfile, imageUri);
       
-      // Get AI analysis
+      // Get AI analysis - this already returns parsed JSON
       const response = await aiClient.analyzePhysique(prompt);
       
-      try {
-        const parsedResponse = JSON.parse(response);
+      // Check if response is already an object (parsed JSON)
+      if (typeof response === 'object' && response !== null) {
         // Enhance the response with additional calculations
-        return this.enhancePhysiqueAnalysis(parsedResponse, poseType);
-      } catch (parseError) {
-        console.error('Error parsing AI response:', parseError);
-        // If parsing fails, use the response text to create a structured analysis
-        return this.createStructuredAnalysisFromText(response, poseType);
+        return this.enhancePhysiqueAnalysis(response, poseType);
       }
+      
+      // If response is a string, try to parse it
+      if (typeof response === 'string') {
+        try {
+          const parsedResponse = JSON.parse(response);
+          return this.enhancePhysiqueAnalysis(parsedResponse, poseType);
+        } catch (parseError) {
+          console.error('Error parsing AI response:', parseError);
+          // If parsing fails, use the response text to create a structured analysis
+          return this.createStructuredAnalysisFromText(response, poseType);
+        }
+      }
+      
+      // If response is neither object nor string, use fallback
+      console.error('Unexpected response type:', typeof response);
+      return this.getFallbackAnalysis(poseType, userProfile);
     } catch (error) {
       console.error('Physique analysis error:', error);
       return this.getFallbackAnalysis(poseType, userProfile);
