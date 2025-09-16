@@ -14,16 +14,15 @@ class AIClient {
     // Remove common AI response prefixes
     cleaned = cleaned.replace(/^[^{\[]*(?={|\[)/, '');
     
-    // Remove any text after the last } or ]
-    cleaned = cleaned.replace(/(?<=}|\])[^}\]]*$/, '');
-    
     // Try to find JSON object first - use a more robust approach
     // Count braces to find the complete JSON object
     let braceCount = 0;
+    let bracketCount = 0;
     let inString = false;
     let escapeNext = false;
     let jsonStart = -1;
     let jsonEnd = -1;
+    let isArray = false;
     
     for (let i = 0; i < cleaned.length; i++) {
       const char = cleaned[i];
@@ -33,7 +32,7 @@ class AIClient {
         continue;
       }
       
-      if (char === '\\') {
+      if (char === '\\' && inString) {
         escapeNext = true;
         continue;
       }
@@ -45,11 +44,26 @@ class AIClient {
       
       if (!inString) {
         if (char === '{') {
-          if (jsonStart === -1) jsonStart = i;
+          if (jsonStart === -1 && bracketCount === 0) {
+            jsonStart = i;
+            isArray = false;
+          }
           braceCount++;
         } else if (char === '}') {
           braceCount--;
-          if (braceCount === 0 && jsonStart !== -1) {
+          if (braceCount === 0 && bracketCount === 0 && jsonStart !== -1 && !isArray) {
+            jsonEnd = i;
+            break;
+          }
+        } else if (char === '[') {
+          if (jsonStart === -1 && braceCount === 0) {
+            jsonStart = i;
+            isArray = true;
+          }
+          bracketCount++;
+        } else if (char === ']') {
+          bracketCount--;
+          if (bracketCount === 0 && braceCount === 0 && jsonStart !== -1 && isArray) {
             jsonEnd = i;
             break;
           }
@@ -61,20 +75,10 @@ class AIClient {
       return cleaned.substring(jsonStart, jsonEnd + 1);
     }
     
-    // Fallback to simple approach
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    
-    if (firstBrace !== -1 && lastBrace !== -1 && firstBrace < lastBrace) {
-      return cleaned.substring(firstBrace, lastBrace + 1);
-    }
-    
-    // Try to find array format
-    const firstBracket = cleaned.indexOf('[');
-    const lastBracket = cleaned.lastIndexOf(']');
-    
-    if (firstBracket !== -1 && lastBracket !== -1 && firstBracket < lastBracket) {
-      return cleaned.substring(firstBracket, lastBracket + 1);
+    // Fallback: Try to extract the largest valid JSON structure
+    const matches = cleaned.match(/{[\s\S]*}|\[[\s\S]*\]/);
+    if (matches && matches[0]) {
+      return matches[0];
     }
     
     console.error('No valid JSON found in response:', cleaned.substring(0, 300));
@@ -322,23 +326,26 @@ class AIClient {
           personalized nutrition plan based on the user's goals, body metrics, and preferences. 
           
           IMPORTANT: You must respond with ONLY a valid JSON object. Do not include any text before or after the JSON. 
+          Do not truncate the response. Complete all arrays properly.
           The JSON should follow this exact structure:
           {
-            \"dailyCalories\": number,
-            \"macros\": {
-              \"protein\": { \"grams\": number, \"percentage\": number },
-              \"carbs\": { \"grams\": number, \"percentage\": number },
-              \"fats\": { \"grams\": number, \"percentage\": number }
+            "dailyCalories": number,
+            "macros": {
+              "protein": { "grams": number, "percentage": number },
+              "carbs": { "grams": number, "percentage": number },
+              "fats": { "grams": number, "percentage": number }
             },
-            \"mealPlan\": {
-              \"breakfast\": [],
-              \"lunch\": [],
-              \"dinner\": [],
-              \"snacks\": []
+            "mealPlan": {
+              "breakfast": ["item1", "item2"],
+              "lunch": ["item1", "item2"],
+              "dinner": ["item1", "item2"],
+              "snacks": ["item1", "item2"]
             },
-            \"tips\": [],
-            \"supplements\": []
-          }`
+            "tips": ["tip1", "tip2", "tip3"],
+            "supplements": ["supplement1", "supplement2"]
+          }
+          
+          Keep meal items as simple strings, not objects. Keep the response concise but complete.`
         },
         {
           role: 'user',
@@ -348,7 +355,32 @@ class AIClient {
 
       const response = await this.generateText(messages);
       const cleanedResponse = this.cleanJsonResponse(response);
-      return this.parseJsonSafely(cleanedResponse);
+      const parsed = this.parseJsonSafely(cleanedResponse);
+      
+      // Transform meal plan if it comes as strings
+      if (parsed.mealPlan) {
+        const transformMealPlan = (meals: any) => {
+          if (Array.isArray(meals)) {
+            return meals.map((meal: any) => {
+              if (typeof meal === 'string') {
+                return {
+                  name: meal,
+                  calories: Math.round(parsed.dailyCalories / 10) // Rough estimate
+                };
+              }
+              return meal;
+            });
+          }
+          return [];
+        };
+        
+        parsed.mealPlan.breakfast = transformMealPlan(parsed.mealPlan.breakfast);
+        parsed.mealPlan.lunch = transformMealPlan(parsed.mealPlan.lunch);
+        parsed.mealPlan.dinner = transformMealPlan(parsed.mealPlan.dinner);
+        parsed.mealPlan.snacks = transformMealPlan(parsed.mealPlan.snacks);
+      }
+      
+      return parsed;
     } catch (error) {
       console.error('AI nutrition plan generation failed:', error);
       // Return a minimal valid structure that the service can enhance

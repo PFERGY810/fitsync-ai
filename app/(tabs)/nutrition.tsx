@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Animated } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Apple, Target, TrendingUp, Clock } from 'lucide-react-native';
@@ -12,16 +12,18 @@ export default function NutritionScreen() {
 
   useEffect(() => {
     // Generate physique-based nutrition plan if none exists
-    if (!currentNutritionPlan && userProfile) {
+    if (!currentNutritionPlan && userProfile && !isGeneratingNutritionPlan) {
       generatePhysiqueBasedPlan();
     }
+  }, [currentNutritionPlan, userProfile, isGeneratingNutritionPlan]);
 
+  useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 800,
       useNativeDriver: true,
     }).start();
-  }, [fadeAnim, currentNutritionPlan, userProfile, generatePhysiqueBasedPlan]);
+  }, [fadeAnim]);
 
   if (isGeneratingNutritionPlan) {
     return (
