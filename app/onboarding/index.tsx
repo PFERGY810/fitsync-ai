@@ -74,7 +74,7 @@ export default function OnboardingScreen() {
         useNativeDriver: true,
       })
     ]).start();
-  }, [fadeAnim, translateAnim]);
+  }, []);
   
   const validateForm = () => {
     const newErrors: Record<string, string> = {};

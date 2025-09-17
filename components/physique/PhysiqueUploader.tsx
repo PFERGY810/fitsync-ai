@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, ActivityIndicator, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, ActivityIndicator, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Camera, Upload, CheckCircle } from 'lucide-react-native';
@@ -21,7 +21,7 @@ const FEMALE_POSE_TYPES = [
   { id: 'glutes', label: 'Glutes' },
 ];
 
-const { width } = Dimensions.get('window');
+
 
 export const PhysiqueUploader = () => {
   const router = useRouter();
@@ -56,7 +56,7 @@ export const PhysiqueUploader = () => {
         useNativeDriver: true,
       })
     ]).start();
-  }, []);
+  }, [fadeAnim, scaleAnim]);
 
   useEffect(() => {
     // Update progress animation when photos are added
@@ -71,7 +71,7 @@ export const PhysiqueUploader = () => {
     }).start();
     
     setUploadProgress(Math.round(progress * 100));
-  }, [photos]);
+  }, [photos, poseTypes.length, progressAnim]);
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -196,7 +196,7 @@ export const PhysiqueUploader = () => {
       <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
         <Text style={styles.title}>Upload Physique Photos</Text>
         <Text style={styles.subtitle}>
-          We'll analyze your photos to create a personalized plan
+          We&apos;ll analyze your photos to create a personalized plan
         </Text>
         
         <View style={styles.progressContainer}>

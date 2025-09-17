@@ -252,37 +252,35 @@ class AIClient {
       const messages: AIMessage[] = [
         {
           role: 'system',
-          content: `You are an expert fitness coach and program designer with deep knowledge of 
-          exercise science, periodization, and training methodologies. Create a detailed, personalized 
-          workout plan based on the user's goals, experience level, and constraints. 
+          content: `You are an expert fitness coach. Create a workout plan as a valid JSON object.
           
           CRITICAL: Respond with ONLY valid JSON. No text before or after.
-          IMPORTANT: Keep arrays short (2-3 items max) to avoid truncation.
+          IMPORTANT: Keep all arrays to exactly 2 items to prevent truncation.
           
           Use this EXACT structure:
           {
             "plan": {
-              "name": "string",
-              "duration": "string",
-              "description": "string",
+              "name": "Beginner Program",
+              "duration": "8 weeks",
+              "description": "Full body workout plan",
               "schedule": []
             },
             "nutrition": {
-              "dailyCalories": number,
+              "dailyCalories": 2500,
               "macros": {
-                "protein": number,
-                "carbs": number,
-                "fats": number
+                "protein": 30,
+                "carbs": 40,
+                "fats": 30
               },
-              "tips": ["tip1", "tip2"]
+              "tips": ["Eat protein after workouts", "Stay hydrated"]
             },
             "progressTracking": {
-              "metrics": ["metric1", "metric2"],
-              "checkpoints": ["check1", "check2"]
+              "metrics": ["Weight progression", "Body measurements"],
+              "checkpoints": ["Week 4 assessment", "Week 8 evaluation"]
             }
           }
           
-          Keep strings SHORT (max 100 chars). Complete the JSON properly.`
+          Keep all strings under 50 characters. Complete the JSON properly with closing braces.`
         },
         {
           role: 'user',
@@ -291,8 +289,37 @@ class AIClient {
       ];
 
       const response = await this.generateText(messages);
+      console.log('Raw workout response (first 300 chars):', response.substring(0, 300));
+      
       const cleanedResponse = this.cleanJsonResponse(response);
-      return this.parseJsonSafely(cleanedResponse);
+      console.log('Cleaned workout JSON (first 300 chars):', cleanedResponse.substring(0, 300));
+      
+      const parsed = this.parseJsonSafely(cleanedResponse);
+      
+      // Ensure all required fields exist
+      const result = {
+        plan: {
+          name: parsed.plan?.name || 'AI Generated Plan',
+          duration: parsed.plan?.duration || '8 weeks',
+          description: parsed.plan?.description || 'Custom workout plan',
+          schedule: Array.isArray(parsed.plan?.schedule) ? parsed.plan.schedule : []
+        },
+        nutrition: {
+          dailyCalories: parsed.nutrition?.dailyCalories || 2500,
+          macros: {
+            protein: parsed.nutrition?.macros?.protein || 30,
+            carbs: parsed.nutrition?.macros?.carbs || 40,
+            fats: parsed.nutrition?.macros?.fats || 30
+          },
+          tips: Array.isArray(parsed.nutrition?.tips) ? parsed.nutrition.tips.slice(0, 2) : ['Eat protein after workouts', 'Stay hydrated']
+        },
+        progressTracking: {
+          metrics: Array.isArray(parsed.progressTracking?.metrics) ? parsed.progressTracking.metrics.slice(0, 2) : ['Weight progression', 'Body measurements'],
+          checkpoints: Array.isArray(parsed.progressTracking?.checkpoints) ? parsed.progressTracking.checkpoints.slice(0, 2) : ['Week 4 assessment', 'Week 8 evaluation']
+        }
+      };
+      
+      return result;
     } catch (error) {
       console.error('AI workout plan generation failed:', error);
       // Return a minimal valid structure that the service can enhance
@@ -310,11 +337,11 @@ class AIClient {
             carbs: 40,
             fats: 30
           },
-          tips: []
+          tips: ['Eat protein after workouts', 'Stay hydrated']
         },
         progressTracking: {
-          metrics: [],
-          checkpoints: []
+          metrics: ['Weight progression', 'Body measurements'],
+          checkpoints: ['Week 4 assessment', 'Week 8 evaluation']
         }
       };
     }
@@ -325,32 +352,30 @@ class AIClient {
       const messages: AIMessage[] = [
         {
           role: 'system',
-          content: `You are an expert nutritionist and dietitian with deep knowledge of 
-          sports nutrition, macronutrient requirements, and meal planning. Create a detailed, 
-          personalized nutrition plan based on the user's goals, body metrics, and preferences. 
+          content: `You are an expert nutritionist. Create a nutrition plan as a valid JSON object.
           
-          CRITICAL: You must respond with ONLY a valid JSON object. No text before or after.
-          IMPORTANT: Keep arrays short (2-3 items max) to avoid truncation.
+          CRITICAL: Respond with ONLY valid JSON. No text before or after.
+          IMPORTANT: Keep all arrays to exactly 2 items to prevent truncation.
           
           Use this EXACT structure:
           {
-            "dailyCalories": number,
+            "dailyCalories": 2000,
             "macros": {
-              "protein": { "grams": number, "percentage": number },
-              "carbs": { "grams": number, "percentage": number },
-              "fats": { "grams": number, "percentage": number }
+              "protein": { "grams": 150, "percentage": 30 },
+              "carbs": { "grams": 200, "percentage": 40 },
+              "fats": { "grams": 67, "percentage": 30 }
             },
             "mealPlan": {
-              "breakfast": ["item1", "item2"],
-              "lunch": ["item1", "item2"],
-              "dinner": ["item1", "item2"],
-              "snacks": ["item1"]
+              "breakfast": ["Eggs with toast", "Greek yogurt"],
+              "lunch": ["Chicken salad", "Brown rice"],
+              "dinner": ["Salmon", "Vegetables"],
+              "snacks": ["Protein shake", "Nuts"]
             },
-            "tips": ["tip1", "tip2"],
-            "supplements": ["supp1", "supp2"]
+            "tips": ["Stay hydrated", "Eat protein with meals"],
+            "supplements": ["Whey protein", "Multivitamin"]
           }
           
-          Keep items SHORT (max 50 chars each). Complete the JSON properly.`
+          Keep all strings under 30 characters. Complete the JSON properly with closing braces.`
         },
         {
           role: 'user',
@@ -359,51 +384,50 @@ class AIClient {
       ];
 
       const response = await this.generateText(messages);
+      console.log('Raw nutrition response (first 300 chars):', response.substring(0, 300));
+      
       const cleanedResponse = this.cleanJsonResponse(response);
+      console.log('Cleaned nutrition JSON (first 300 chars):', cleanedResponse.substring(0, 300));
+      
       const parsed = this.parseJsonSafely(cleanedResponse);
       
-      // Transform meal plan if it comes as strings
-      if (parsed.mealPlan) {
-        const transformMealPlan = (meals: any) => {
-          if (Array.isArray(meals)) {
-            return meals.map((meal: any) => {
-              if (typeof meal === 'string') {
-                return {
-                  name: meal,
-                  calories: Math.round(parsed.dailyCalories / 10) // Rough estimate
-                };
-              }
-              return meal;
-            });
-          }
-          return [];
-        };
-        
-        parsed.mealPlan.breakfast = transformMealPlan(parsed.mealPlan.breakfast);
-        parsed.mealPlan.lunch = transformMealPlan(parsed.mealPlan.lunch);
-        parsed.mealPlan.dinner = transformMealPlan(parsed.mealPlan.dinner);
-        parsed.mealPlan.snacks = transformMealPlan(parsed.mealPlan.snacks);
-      }
+      // Ensure all required fields exist
+      const result = {
+        dailyCalories: parsed.dailyCalories || 2000,
+        macros: {
+          protein: parsed.macros?.protein || { grams: 150, percentage: 30 },
+          carbs: parsed.macros?.carbs || { grams: 200, percentage: 40 },
+          fats: parsed.macros?.fats || { grams: 67, percentage: 30 }
+        },
+        mealPlan: {
+          breakfast: Array.isArray(parsed.mealPlan?.breakfast) ? parsed.mealPlan.breakfast.slice(0, 2) : ['Eggs with toast', 'Greek yogurt'],
+          lunch: Array.isArray(parsed.mealPlan?.lunch) ? parsed.mealPlan.lunch.slice(0, 2) : ['Chicken salad', 'Brown rice'],
+          dinner: Array.isArray(parsed.mealPlan?.dinner) ? parsed.mealPlan.dinner.slice(0, 2) : ['Salmon', 'Vegetables'],
+          snacks: Array.isArray(parsed.mealPlan?.snacks) ? parsed.mealPlan.snacks.slice(0, 2) : ['Protein shake', 'Nuts']
+        },
+        tips: Array.isArray(parsed.tips) ? parsed.tips.slice(0, 2) : ['Stay hydrated', 'Eat protein with meals'],
+        supplements: Array.isArray(parsed.supplements) ? parsed.supplements.slice(0, 2) : ['Whey protein', 'Multivitamin']
+      };
       
-      return parsed;
+      return result;
     } catch (error) {
       console.error('AI nutrition plan generation failed:', error);
       // Return a minimal valid structure that the service can enhance
       return {
-        dailyCalories: 2500,
+        dailyCalories: 2000,
         macros: {
           protein: { grams: 150, percentage: 30 },
-          carbs: { grams: 250, percentage: 40 },
-          fats: { grams: 83, percentage: 30 }
+          carbs: { grams: 200, percentage: 40 },
+          fats: { grams: 67, percentage: 30 }
         },
         mealPlan: {
-          breakfast: [],
-          lunch: [],
-          dinner: [],
-          snacks: []
+          breakfast: ['Eggs with toast', 'Greek yogurt'],
+          lunch: ['Chicken salad', 'Brown rice'],
+          dinner: ['Salmon', 'Vegetables'],
+          snacks: ['Protein shake', 'Nuts']
         },
-        tips: [],
-        supplements: []
+        tips: ['Stay hydrated', 'Eat protein with meals'],
+        supplements: ['Whey protein', 'Multivitamin']
       };
     }
   }
