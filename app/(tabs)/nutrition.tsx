@@ -10,12 +10,7 @@ export default function NutritionScreen() {
   const { currentNutritionPlan, isGeneratingNutritionPlan, generatePhysiqueBasedPlan } = useNutritionAdvisor();
   const { userProfile } = useUserStore();
 
-  useEffect(() => {
-    // Generate physique-based nutrition plan if none exists
-    if (!currentNutritionPlan && userProfile && !isGeneratingNutritionPlan) {
-      generatePhysiqueBasedPlan();
-    }
-  }, [currentNutritionPlan, userProfile, isGeneratingNutritionPlan]);
+  // Remove automatic plan generation - only generate after physique analysis
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -30,6 +25,26 @@ export default function NutritionScreen() {
       <View style={styles.loadingContainer}>
         <StatusBar style="light" />
         <Text style={styles.loadingText}>Analyzing your physique and generating personalized nutrition plan...</Text>
+      </View>
+    );
+  }
+
+  if (!currentNutritionPlan) {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="light" />
+        
+        <View style={styles.header}>
+          <Text style={styles.title}>Nutrition</Text>
+          <Text style={styles.subtitle}>Complete your physique analysis to get personalized nutrition</Text>
+        </View>
+
+        <View style={styles.emptyStateContainer}>
+          <Text style={styles.emptyStateTitle}>No Nutrition Plan Yet</Text>
+          <Text style={styles.emptyStateText}>
+            Upload your physique photos first to get a personalized nutrition plan based on your body composition and goals.
+          </Text>
+        </View>
       </View>
     );
   }
@@ -56,7 +71,7 @@ export default function NutritionScreen() {
                   <Text style={styles.caloriesTitle}>Daily Calories</Text>
                 </View>
                 <Text style={styles.caloriesValue}>
-                  {currentNutritionPlan ? currentNutritionPlan.dailyCalories.toLocaleString() : '2,850'}
+                  {currentNutritionPlan ? currentNutritionPlan.dailyCalories.toLocaleString() : '--'}
                 </Text>
                 <Text style={styles.caloriesSubtext}>kcal target</Text>
               </View>
@@ -498,5 +513,24 @@ const styles = StyleSheet.create({
     color: '#10B981',
     fontSize: 12,
     fontWeight: '500',
+  },
+  emptyStateContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyStateTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    color: '#9CA3AF',
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
   },
 });

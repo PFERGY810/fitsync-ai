@@ -7,14 +7,12 @@ import { useAIStore } from '@/stores/ai-store';
 import { ChevronRight } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-
-
 // Experience level options
 const EXPERIENCE_LEVELS = [
   { id: 'beginner', label: 'Beginner' },
   { id: 'intermediate', label: 'Intermediate' },
   { id: 'advanced', label: 'Advanced' },
-];
+] as const;
 
 // Goals options
 const GOALS = [
@@ -23,7 +21,7 @@ const GOALS = [
   { id: 'Improve Strength', label: 'Improve Strength' },
   { id: 'Increase Endurance', label: 'Increase Endurance' },
   { id: 'Improve Flexibility', label: 'Improve Flexibility' },
-];
+] as const;
 
 // Equipment options
 const EQUIPMENT = [
@@ -32,7 +30,7 @@ const EQUIPMENT = [
   { id: 'Dumbbells', label: 'Dumbbells' },
   { id: 'Resistance Bands', label: 'Resistance Bands' },
   { id: 'Bodyweight Only', label: 'Bodyweight Only' },
-];
+] as const;
 
 export default function OnboardingScreen() {
   const router = useRouter();

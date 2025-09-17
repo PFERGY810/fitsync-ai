@@ -328,6 +328,7 @@ class AIClient {
           CRITICAL: Respond with ONLY valid JSON. No text before or after.
           IMPORTANT: Keep all meal arrays to exactly 2 items to prevent truncation.
           IMPORTANT: Ensure all JSON is properly closed with matching braces and brackets.
+          IMPORTANT: Use simple meal names without special characters or quotes inside strings.
           
           Use this EXACT structure (copy exactly):
           {
@@ -338,16 +339,28 @@ class AIClient {
               "fats": { "grams": 67, "percentage": 30 }
             },
             "mealPlan": {
-              "breakfast": ["Eggs with toast", "Greek yogurt"],
-              "lunch": ["Chicken salad", "Brown rice"],
-              "dinner": ["Salmon", "Vegetables"],
-              "snacks": ["Protein shake", "Nuts"]
+              "breakfast": [
+                { "name": "Scrambled eggs", "calories": 200 },
+                { "name": "Whole grain toast", "calories": 150 }
+              ],
+              "lunch": [
+                { "name": "Grilled chicken", "calories": 300 },
+                { "name": "Brown rice", "calories": 200 }
+              ],
+              "dinner": [
+                { "name": "Baked salmon", "calories": 350 },
+                { "name": "Steamed vegetables", "calories": 100 }
+              ],
+              "snacks": [
+                { "name": "Protein shake", "calories": 150 },
+                { "name": "Mixed nuts", "calories": 200 }
+              ]
             },
             "tips": ["Stay hydrated", "Eat protein with meals"],
             "supplements": ["Whey protein", "Multivitamin"]
           }
           
-          Keep all strings under 25 characters. Double-check that all arrays and objects are properly closed.`
+          Keep all strings under 20 characters. Double-check that all arrays and objects are properly closed.`
         },
         {
           role: 'user',
@@ -380,16 +393,16 @@ class AIClient {
         mealPlan: {
           breakfast: Array.isArray(parsed.mealPlan?.breakfast) 
             ? parsed.mealPlan.breakfast.slice(0, 2) 
-            : ['Eggs with toast', 'Greek yogurt'],
+            : [{ name: 'Scrambled eggs', calories: 200 }, { name: 'Whole grain toast', calories: 150 }],
           lunch: Array.isArray(parsed.mealPlan?.lunch) 
             ? parsed.mealPlan.lunch.slice(0, 2) 
-            : ['Chicken salad', 'Brown rice'],
+            : [{ name: 'Grilled chicken', calories: 300 }, { name: 'Brown rice', calories: 200 }],
           dinner: Array.isArray(parsed.mealPlan?.dinner) 
             ? parsed.mealPlan.dinner.slice(0, 2) 
-            : ['Salmon', 'Vegetables'],
+            : [{ name: 'Baked salmon', calories: 350 }, { name: 'Steamed vegetables', calories: 100 }],
           snacks: Array.isArray(parsed.mealPlan?.snacks) 
             ? parsed.mealPlan.snacks.slice(0, 2) 
-            : ['Protein shake', 'Nuts']
+            : [{ name: 'Protein shake', calories: 150 }, { name: 'Mixed nuts', calories: 200 }]
         },
         tips: Array.isArray(parsed.tips) 
           ? parsed.tips.slice(0, 2) 
@@ -402,23 +415,8 @@ class AIClient {
       return result;
     } catch (error) {
       console.error('AI nutrition plan generation failed:', error);
-      // Return a minimal valid structure that the service can enhance
-      return {
-        dailyCalories: 2000,
-        macros: {
-          protein: { grams: 150, percentage: 30 },
-          carbs: { grams: 200, percentage: 40 },
-          fats: { grams: 67, percentage: 30 }
-        },
-        mealPlan: {
-          breakfast: ['Eggs with toast', 'Greek yogurt'],
-          lunch: ['Chicken salad', 'Brown rice'],
-          dinner: ['Salmon', 'Vegetables'],
-          snacks: ['Protein shake', 'Nuts']
-        },
-        tips: ['Stay hydrated', 'Eat protein with meals'],
-        supplements: ['Whey protein', 'Multivitamin']
-      };
+      // Don't return fallback data - let the error bubble up
+      throw error;
     }
   }
 }

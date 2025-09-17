@@ -131,29 +131,21 @@ Format your response as a structured JSON object with the following schema:
       poseType,
       date: new Date().toISOString(),
       metrics: {
-        muscleMass: muscleMassMatch ? parseInt(muscleMassMatch[1]) : 75,
-        bodyFat: bodyFatMatch ? parseInt(bodyFatMatch[1]) : 15,
-        symmetry: symmetryMatch ? parseInt(symmetryMatch[1]) : 7,
-        posture: postureMatch ? parseInt(postureMatch[1]) : 8,
-        overallConvexity: convexityMatch ? parseInt(convexityMatch[1]) : 6
+        muscleMass: muscleMassMatch ? parseInt(muscleMassMatch[1]) : 0,
+        bodyFat: bodyFatMatch ? parseInt(bodyFatMatch[1]) : 0,
+        symmetry: symmetryMatch ? parseInt(symmetryMatch[1]) : 0,
+        posture: postureMatch ? parseInt(postureMatch[1]) : 0,
+        overallConvexity: convexityMatch ? parseInt(convexityMatch[1]) : 0
       },
       insights: insights.length > 0 ? insights : [
-        'Good overall muscle development for your experience level',
-        'Balanced proportions between upper and lower body',
-        'Posture shows good alignment'
+        'Analysis completed - review detailed metrics above'
       ],
       recommendations: recommendations.length > 0 ? recommendations : [
-        'Continue with compound movements for overall development',
-        'Focus on progressive overload in your training',
-        'Maintain consistent nutrition to support your goals'
+        'Continue training consistently based on your goals'
       ],
       muscleGroups,
-      weakPoints: weakPoints.length > 0 ? weakPoints : Object.keys(muscleGroups).filter(group => 
-        muscleGroups[group].development < 6
-      ),
-      strengthPoints: strengthPoints.length > 0 ? strengthPoints : Object.keys(muscleGroups).filter(group => 
-        muscleGroups[group].development >= 8
-      )
+      weakPoints: weakPoints.length > 0 ? weakPoints : [],
+      strengthPoints: strengthPoints.length > 0 ? strengthPoints : []
     };
   }
 
@@ -171,26 +163,27 @@ Format your response as a structured JSON object with the following schema:
       .filter(([_, data]: [string, any]) => data.development >= 8)
       .map(([group, _]) => group);
     
+    // Validate that we have actual AI response data
+    if (!response.metrics || typeof response.metrics !== 'object') {
+      throw new Error('Invalid AI response: missing metrics data');
+    }
+
     return {
       poseType,
       date: new Date().toISOString(),
       metrics: {
-        muscleMass: Math.max(60, Math.min(95, response.metrics?.muscleMass || 75)),
-        bodyFat: Math.max(5, Math.min(35, response.metrics?.bodyFat || 15)),
-        symmetry: Math.max(1, Math.min(10, response.metrics?.symmetry || 7)),
-        posture: Math.max(1, Math.min(10, response.metrics?.posture || 8)),
-        overallConvexity: Math.max(1, Math.min(10, response.metrics?.overallConvexity || 6))
+        muscleMass: Math.max(60, Math.min(95, response.metrics.muscleMass || 0)),
+        bodyFat: Math.max(5, Math.min(35, response.metrics.bodyFat || 0)),
+        symmetry: Math.max(1, Math.min(10, response.metrics.symmetry || 0)),
+        posture: Math.max(1, Math.min(10, response.metrics.posture || 0)),
+        overallConvexity: Math.max(1, Math.min(10, response.metrics.overallConvexity || 0))
       },
-      insights: Array.isArray(response.insights) ? response.insights : [
-        'Good overall muscle development for your experience level',
-        'Balanced proportions between upper and lower body',
-        'Posture shows good alignment'
-      ],
-      recommendations: Array.isArray(response.recommendations) ? response.recommendations : [
-        'Continue with compound movements for overall development',
-        'Focus on progressive overload in your training',
-        'Maintain consistent nutrition to support your goals'
-      ],
+      insights: Array.isArray(response.insights) && response.insights.length > 0 
+        ? response.insights 
+        : ['Analysis completed - review detailed metrics above'],
+      recommendations: Array.isArray(response.recommendations) && response.recommendations.length > 0 
+        ? response.recommendations 
+        : ['Continue training consistently based on your goals'],
       muscleGroups: this.enhanceMuscleGroups(muscleGroups),
       weakPoints,
       strengthPoints
@@ -202,10 +195,10 @@ Format your response as a structured JSON object with the following schema:
     
     for (const [group, data] of Object.entries(muscleGroups)) {
       enhanced[group] = {
-        development: (data as any).development || 6,
-        convexity: (data as any).convexity || 5,
-        symmetry: (data as any).symmetry || 7,
-        notes: (data as any).notes || `${group} shows typical development`
+        development: (data as any).development || 0,
+        convexity: (data as any).convexity || 0,
+        symmetry: (data as any).symmetry || 0,
+        notes: (data as any).notes || `${group} analysis pending`
       };
     }
     
@@ -266,66 +259,7 @@ Format your response as a structured JSON object with the following schema:
 
 
 
-  private getFallbackAnalysis(poseType: string, userProfile: any): PhysiqueAnalysisResponse {
-    const muscleGroups = this.getVisibleMuscleGroupsForPose(poseType);
-    
-    // Calculate weak points (muscle groups with development < 6)
-    const weakPoints = Object.entries(muscleGroups)
-      .filter(([_, data]) => data.development < 6)
-      .map(([group, _]) => group);
-    
-    // Calculate strength points (muscle groups with development >= 8)
-    const strengthPoints = Object.entries(muscleGroups)
-      .filter(([_, data]) => data.development >= 8)
-      .map(([group, _]) => group);
-    
-    // Adjust metrics based on user profile if available
-    let muscleMass = 75;
-    let bodyFat = 15;
-    
-    if (userProfile) {
-      // Adjust muscle mass based on experience
-      if (userProfile.experience === 'beginner') {
-        muscleMass = 70;
-      } else if (userProfile.experience === 'intermediate') {
-        muscleMass = 75;
-      } else if (userProfile.experience === 'advanced') {
-        muscleMass = 80;
-      }
-      
-      // Adjust body fat based on gender
-      if (userProfile.gender === 'male') {
-        bodyFat = userProfile.goals.includes('Lose Weight') ? 18 : 15;
-      } else {
-        bodyFat = userProfile.goals.includes('Lose Weight') ? 25 : 22;
-      }
-    }
-    
-    return {
-      poseType,
-      date: new Date().toISOString(),
-      metrics: {
-        muscleMass,
-        bodyFat,
-        symmetry: 7,
-        posture: 8,
-        overallConvexity: 6
-      },
-      insights: [
-        'Good overall muscle development for your experience level',
-        'Balanced proportions between upper and lower body',
-        'Posture shows good alignment'
-      ],
-      recommendations: [
-        'Continue with compound movements for overall development',
-        'Focus on progressive overload in your training',
-        'Maintain consistent nutrition to support your goals'
-      ],
-      muscleGroups,
-      weakPoints,
-      strengthPoints
-    };
-  }
+  // Removed fallback analysis - errors should bubble up instead of returning fake data
 }
 
 export const physiqueAnalyzerService = new PhysiqueAnalyzerService();

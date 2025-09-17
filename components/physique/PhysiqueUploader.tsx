@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Camera, Upload, CheckCircle } from 'lucide-react-native';
 import { usePhysiqueAnalysis } from '@/hooks/use-physique-analysis';
 import { useUserStore } from '@/stores/user-store';
+import { useNutritionAdvisor } from '@/hooks/use-nutrition-advisor';
 import { PhysiqueAnalysisRequest } from '@/types/ai';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -27,6 +28,7 @@ export const PhysiqueUploader = () => {
   const router = useRouter();
   const { userProfile } = useUserStore();
   const { analyzePhysique, isAnalyzing, error } = usePhysiqueAnalysis();
+  const { generatePhysiqueBasedPlan } = useNutritionAdvisor();
   
   const [photos, setPhotos] = useState<Record<string, string>>({});
   const [currentPoseType, setCurrentPoseType] = useState<string>('front');
@@ -163,6 +165,8 @@ export const PhysiqueUploader = () => {
     setAnalysisStarted(true);
     
     try {
+      let analysisCompleted = false;
+      
       // Analyze each photo sequentially
       for (const poseType of poseTypes) {
         const imageUri = photos[poseType.id];
@@ -173,16 +177,27 @@ export const PhysiqueUploader = () => {
             imageUri: imageUri.trim(),
           };
           
-          await analyzePhysique(request);
+          const result = await analyzePhysique(request);
+          if (result) {
+            analysisCompleted = true;
+          }
         } else {
           console.warn(`Skipping analysis for ${poseType.id} - no valid image URI`);
         }
+      }
+      
+      // Generate nutrition plan after physique analysis is complete
+      if (analysisCompleted) {
+        console.log('Physique analysis completed, generating nutrition plan...');
+        await generatePhysiqueBasedPlan();
       }
       
       // Navigate to results after all analyses are complete
       router.push('/physique-results');
     } catch (err) {
       console.error('Error during physique analysis:', err);
+    } finally {
+      setAnalysisStarted(false);
     }
   };
 
@@ -308,7 +323,7 @@ export const PhysiqueUploader = () => {
               style={styles.gradientButton}
             >
               <Text style={styles.analyzeButtonText}>
-                {analysisStarted ? 'Analyzing...' : 'Analyze Physique'}
+                {analysisStarted ? 'Analyzing & Creating Plan...' : 'Analyze Physique'}
               </Text>
             </LinearGradient>
           )}
