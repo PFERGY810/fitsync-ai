@@ -6,12 +6,21 @@ export class PhysiqueAnalyzerService {
     try {
       console.log('Starting physique analysis for pose:', poseType);
       
-      // For now, return a realistic analysis without AI to avoid errors
-      // In production, this would use the AI service
-      return this.getFallbackAnalysis(poseType, userProfile);
+      if (!imageUri || imageUri.trim() === '') {
+        throw new Error('Image URI cannot be empty');
+      }
+      
+      // Build the analysis prompt
+      const prompt = this.buildPhysiqueAnalysisPrompt(poseType, userProfile, imageUri);
+      
+      // Call AI service for analysis
+      const aiResponse = await aiClient.analyzePhysique(prompt);
+      
+      // Enhance and validate the response
+      return this.enhancePhysiqueAnalysis(aiResponse, poseType);
     } catch (error) {
       console.error('Physique analysis error:', error);
-      return this.getFallbackAnalysis(poseType, userProfile);
+      throw error; // Don't return fallback data, let error bubble up
     }
   }
 
@@ -120,10 +129,10 @@ Format your response as a structured JSON object with the following schema:
     
     return {
       poseType,
-      date: new Date().toLocaleDateString(),
+      date: new Date().toISOString(),
       metrics: {
-        muscleMass: muscleMassMatch ? parseInt(muscleMassMatch[1]) : this.getRealisticMuscleMass(),
-        bodyFat: bodyFatMatch ? parseInt(bodyFatMatch[1]) : this.getRealisticBodyFat(),
+        muscleMass: muscleMassMatch ? parseInt(muscleMassMatch[1]) : 75,
+        bodyFat: bodyFatMatch ? parseInt(bodyFatMatch[1]) : 15,
         symmetry: symmetryMatch ? parseInt(symmetryMatch[1]) : 7,
         posture: postureMatch ? parseInt(postureMatch[1]) : 8,
         overallConvexity: convexityMatch ? parseInt(convexityMatch[1]) : 6
@@ -164,10 +173,10 @@ Format your response as a structured JSON object with the following schema:
     
     return {
       poseType,
-      date: new Date().toLocaleDateString(),
+      date: new Date().toISOString(),
       metrics: {
-        muscleMass: Math.max(60, Math.min(95, response.metrics?.muscleMass || this.getRealisticMuscleMass())),
-        bodyFat: Math.max(5, Math.min(35, response.metrics?.bodyFat || this.getRealisticBodyFat())),
+        muscleMass: Math.max(60, Math.min(95, response.metrics?.muscleMass || 75)),
+        bodyFat: Math.max(5, Math.min(35, response.metrics?.bodyFat || 15)),
         symmetry: Math.max(1, Math.min(10, response.metrics?.symmetry || 7)),
         posture: Math.max(1, Math.min(10, response.metrics?.posture || 8)),
         overallConvexity: Math.max(1, Math.min(10, response.metrics?.overallConvexity || 6))
@@ -193,9 +202,9 @@ Format your response as a structured JSON object with the following schema:
     
     for (const [group, data] of Object.entries(muscleGroups)) {
       enhanced[group] = {
-        development: (data as any).development || Math.floor(Math.random() * 3) + 6,
-        convexity: (data as any).convexity || Math.floor(Math.random() * 3) + 5,
-        symmetry: (data as any).symmetry || Math.floor(Math.random() * 2) + 7,
+        development: (data as any).development || 6,
+        convexity: (data as any).convexity || 5,
+        symmetry: (data as any).symmetry || 7,
         notes: (data as any).notes || `${group} shows typical development`
       };
     }
@@ -255,15 +264,7 @@ Format your response as a structured JSON object with the following schema:
     }
   }
 
-  private getRealisticMuscleMass(): number {
-    // Return a realistic muscle mass percentage (60-95%)
-    return Math.floor(Math.random() * 15) + 70;
-  }
 
-  private getRealisticBodyFat(): number {
-    // Return a realistic body fat percentage (5-35%)
-    return Math.floor(Math.random() * 15) + 10;
-  }
 
   private getFallbackAnalysis(poseType: string, userProfile: any): PhysiqueAnalysisResponse {
     const muscleGroups = this.getVisibleMuscleGroupsForPose(poseType);
@@ -302,7 +303,7 @@ Format your response as a structured JSON object with the following schema:
     
     return {
       poseType,
-      date: new Date().toLocaleDateString(),
+      date: new Date().toISOString(),
       metrics: {
         muscleMass,
         bodyFat,

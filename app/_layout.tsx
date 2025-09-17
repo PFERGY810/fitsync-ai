@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useUserStore } from '@/stores/user-store';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,56 +9,60 @@ const queryClient = new QueryClient();
 function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
-  const { isOnboardingCompleted } = useUserStore();
-  const [isInitialized, setIsInitialized] = useState(false);
+  const userStore = useUserStore();
+  const [isNavigating, setIsNavigating] = useState(false);
+  
+  const handleNavigation = useCallback(() => {
+    if (isNavigating) return;
+    
+    const currentSegment = segments?.[0];
+    const onboardingCompleted = userStore.isOnboardingCompleted();
+    
+    // Define onboarding-related routes
+    const onboardingRoutes = ['onboarding', 'physique-setup', 'physique-results'];
+    const isInOnboardingFlow = currentSegment && onboardingRoutes.includes(currentSegment);
+    
+    console.log('Navigation check:', {
+      currentSegment,
+      onboardingCompleted,
+      isInOnboardingFlow,
+      segments: segments?.slice(0, 2) // Limit logging
+    });
+    
+    // Only redirect if we're at the root or in the wrong flow
+    if (!currentSegment || currentSegment === '') {
+      setIsNavigating(true);
+      // At root, redirect based on onboarding status
+      if (onboardingCompleted) {
+        console.log('Redirecting to tabs from root');
+        router.replace('/(tabs)');
+      } else {
+        console.log('Redirecting to onboarding from root');
+        router.replace('/onboarding');
+      }
+    } else if (!onboardingCompleted && !isInOnboardingFlow && currentSegment === '(tabs)') {
+      setIsNavigating(true);
+      // User is in tabs but hasn't completed onboarding
+      console.log('Redirecting to onboarding - not completed');
+      router.replace('/onboarding');
+    } else if (onboardingCompleted && isInOnboardingFlow) {
+      setIsNavigating(true);
+      // User completed onboarding but is still in onboarding flow
+      console.log('Redirecting to tabs - onboarding completed');
+      router.replace('/(tabs)');
+    }
+  }, [segments, userStore, router, isNavigating]);
   
   useEffect(() => {
-    // Only run navigation logic once after initialization
-    if (isInitialized) {
-      return;
-    }
-    
+    // Reset navigation flag when segments change
+    setIsNavigating(false);
+  }, [segments]);
+  
+  useEffect(() => {
     // Small delay to ensure router is ready
-    const timer = setTimeout(() => {
-      const currentSegment = segments?.[0];
-      const onboardingCompleted = isOnboardingCompleted();
-      
-      // Define onboarding-related routes
-      const onboardingRoutes = ['onboarding', 'physique-setup', 'physique-results'];
-      const isInOnboardingFlow = currentSegment && onboardingRoutes.includes(currentSegment);
-      
-      console.log('Navigation check:', {
-        currentSegment,
-        onboardingCompleted,
-        isInOnboardingFlow,
-        segments
-      });
-      
-      // Only redirect if we're at the root or in the wrong flow
-      if (!currentSegment || currentSegment === '') {
-        // At root, redirect based on onboarding status
-        if (onboardingCompleted) {
-          console.log('Redirecting to tabs from root');
-          router.replace('/(tabs)');
-        } else {
-          console.log('Redirecting to onboarding from root');
-          router.replace('/onboarding');
-        }
-      } else if (!onboardingCompleted && !isInOnboardingFlow && currentSegment === '(tabs)') {
-        // User is in tabs but hasn't completed onboarding
-        console.log('Redirecting to onboarding - not completed');
-        router.replace('/onboarding');
-      } else if (onboardingCompleted && isInOnboardingFlow) {
-        // User completed onboarding but is still in onboarding flow
-        console.log('Redirecting to tabs - onboarding completed');
-        router.replace('/(tabs)');
-      }
-      
-      setIsInitialized(true);
-    }, 100);
-    
+    const timer = setTimeout(handleNavigation, 100);
     return () => clearTimeout(timer);
-  }, [segments, isOnboardingCompleted, router, isInitialized]);
+  }, [handleNavigation]);
   
   return (
     <Stack

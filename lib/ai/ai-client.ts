@@ -11,78 +11,36 @@ class AIClient {
     // Remove markdown code blocks if present
     let cleaned = response.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
     
-    // Remove common AI response prefixes
+    // Remove common AI response prefixes and suffixes
     cleaned = cleaned.replace(/^[^{\[]*(?={|\[)/, '');
+    cleaned = cleaned.replace(/[^}\]]*$/, '');
     
-    // Try to find JSON object first - use a more robust approach
-    // Count braces to find the complete JSON object
-    let braceCount = 0;
-    let bracketCount = 0;
-    let inString = false;
-    let escapeNext = false;
-    let jsonStart = -1;
-    let jsonEnd = -1;
-    let isArray = false;
+    // Find the first { or [ and last } or ]
+    const firstBrace = cleaned.indexOf('{');
+    const firstBracket = cleaned.indexOf('[');
+    const lastBrace = cleaned.lastIndexOf('}');
+    const lastBracket = cleaned.lastIndexOf(']');
     
-    for (let i = 0; i < cleaned.length; i++) {
-      const char = cleaned[i];
-      
-      if (escapeNext) {
-        escapeNext = false;
-        continue;
-      }
-      
-      if (char === '\\' && inString) {
-        escapeNext = true;
-        continue;
-      }
-      
-      if (char === '"' && !escapeNext) {
-        inString = !inString;
-        continue;
-      }
-      
-      if (!inString) {
-        if (char === '{') {
-          if (jsonStart === -1 && bracketCount === 0) {
-            jsonStart = i;
-            isArray = false;
-          }
-          braceCount++;
-        } else if (char === '}') {
-          braceCount--;
-          if (braceCount === 0 && bracketCount === 0 && jsonStart !== -1 && !isArray) {
-            jsonEnd = i;
-            break;
-          }
-        } else if (char === '[') {
-          if (jsonStart === -1 && braceCount === 0) {
-            jsonStart = i;
-            isArray = true;
-          }
-          bracketCount++;
-        } else if (char === ']') {
-          bracketCount--;
-          if (bracketCount === 0 && braceCount === 0 && jsonStart !== -1 && isArray) {
-            jsonEnd = i;
-            break;
-          }
-        }
-      }
+    let start = -1;
+    let end = -1;
+    
+    // Determine if we have an object or array
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+      // Object
+      start = firstBrace;
+      end = lastBrace;
+    } else if (firstBracket !== -1) {
+      // Array
+      start = firstBracket;
+      end = lastBracket;
     }
     
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      return cleaned.substring(jsonStart, jsonEnd + 1);
+    if (start !== -1 && end !== -1 && end > start) {
+      return cleaned.substring(start, end + 1);
     }
     
-    // Fallback: Try to extract the largest valid JSON structure
-    const matches = cleaned.match(/{[\s\S]*}|\[[\s\S]*\]/);
-    if (matches && matches[0]) {
-      return matches[0];
-    }
-    
-    console.error('No valid JSON found in response:', cleaned.substring(0, 300));
-    throw new Error('No valid JSON found in response');
+    console.error('No valid JSON structure found in response:', cleaned.substring(0, 300));
+    throw new Error('No valid JSON structure found in response');
   }
 
   private parseJsonSafely(jsonString: string): any {
@@ -107,33 +65,59 @@ class AIClient {
       // Progressive cleaning attempts
       const cleaningSteps = [
         // Step 1: Basic cleanup
-        (str: string) => str
-          .replace(/}[^}]*$/, '}') // Remove trailing text after JSON
-          .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":') // Quote unquoted keys
-          .replace(/'/g, '"') // Single to double quotes
-          .replace(/,\s*([}\]])/g, '$1') // Remove trailing commas
-          .replace(/[\x00-\x1F\x7F-\x9F]/g, ''), // Remove control characters
-        
-        // Step 2: Fix escape sequences
-        (str: string) => str
-          .replace(/\\n/g, '\\\\n')
-          .replace(/\\t/g, '\\\\t')
-          .replace(/\\r/g, '\\\\r')
-          .replace(/\\"/g, '\\\\"'),
-        
-        // Step 3: Extract JSON pattern
         (str: string) => {
-          const match = str.match(/{[\s\S]*}|\[[\s\S]*\]/);
-          return match ? match[0] : str;
+          let cleaned = str;
+          // Remove trailing text after JSON
+          cleaned = cleaned.replace(/}[^}]*$/, '}');
+          cleaned = cleaned.replace(/][^\]]*$/, ']');
+          // Quote unquoted keys
+          cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+          // Single to double quotes
+          cleaned = cleaned.replace(/'/g, '"');
+          // Remove trailing commas
+          cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
+          // Remove control characters
+          cleaned = cleaned.replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+          return cleaned;
         },
         
-        // Step 4: Aggressive cleanup
-        (str: string) => str
-          .replace(/\\+"/g, '"')
-          .replace(/"\s*:\s*"([^"]*)"/g, (match, value) => {
-            // Fix escaped quotes in string values
-            return `"${value.replace(/"/g, '\\"')}"`;
-          })
+        // Step 2: Fix string content issues
+        (str: string) => {
+          let cleaned = str;
+          // Fix common string content issues that break JSON
+          cleaned = cleaned.replace(/"([^"]*?)\n([^"]*?)"/g, '"$1\\n$2"');
+          cleaned = cleaned.replace(/"([^"]*?)\t([^"]*?)"/g, '"$1\\t$2"');
+          cleaned = cleaned.replace(/"([^"]*?)\r([^"]*?)"/g, '"$1\\r$2"');
+          return cleaned;
+        },
+        
+        // Step 3: Fix incomplete arrays
+        (str: string) => {
+          let cleaned = str;
+          // If we have an incomplete array, try to close it
+          const openBrackets = (cleaned.match(/\[/g) || []).length;
+          const closeBrackets = (cleaned.match(/\]/g) || []).length;
+          if (openBrackets > closeBrackets) {
+            for (let i = 0; i < openBrackets - closeBrackets; i++) {
+              cleaned += ']';
+            }
+          }
+          return cleaned;
+        },
+        
+        // Step 4: Fix incomplete objects
+        (str: string) => {
+          let cleaned = str;
+          // If we have an incomplete object, try to close it
+          const openBraces = (cleaned.match(/{/g) || []).length;
+          const closeBraces = (cleaned.match(/}/g) || []).length;
+          if (openBraces > closeBraces) {
+            for (let i = 0; i < openBraces - closeBraces; i++) {
+              cleaned += '}';
+            }
+          }
+          return cleaned;
+        }
       ];
       
       let cleaned = sanitized;
@@ -205,21 +189,8 @@ class AIClient {
       return this.parseJsonSafely(cleanedResponse);
     } catch (error) {
       console.error('Physique analysis error in AI client:', error);
-      // Return a minimal valid structure
-      return {
-        metrics: {
-          muscleMass: 75,
-          bodyFat: 15,
-          symmetry: 7,
-          posture: 8,
-          overallConvexity: 6
-        },
-        insights: ['Analysis in progress'],
-        recommendations: ['Continue with your current routine'],
-        muscleGroups: {},
-        weakPoints: [],
-        strengthPoints: []
-      };
+      // Don't return fallback data - let the error bubble up
+      throw error;
     }
   }
 
@@ -355,9 +326,10 @@ class AIClient {
           content: `You are an expert nutritionist. Create a nutrition plan as a valid JSON object.
           
           CRITICAL: Respond with ONLY valid JSON. No text before or after.
-          IMPORTANT: Keep all arrays to exactly 2 items to prevent truncation.
+          IMPORTANT: Keep all meal arrays to exactly 2 items to prevent truncation.
+          IMPORTANT: Ensure all JSON is properly closed with matching braces and brackets.
           
-          Use this EXACT structure:
+          Use this EXACT structure (copy exactly):
           {
             "dailyCalories": 2000,
             "macros": {
@@ -375,7 +347,7 @@ class AIClient {
             "supplements": ["Whey protein", "Multivitamin"]
           }
           
-          Keep all strings under 30 characters. Complete the JSON properly with closing braces.`
+          Keep all strings under 25 characters. Double-check that all arrays and objects are properly closed.`
         },
         {
           role: 'user',
@@ -391,22 +363,40 @@ class AIClient {
       
       const parsed = this.parseJsonSafely(cleanedResponse);
       
-      // Ensure all required fields exist
+      // Ensure all required fields exist with proper validation
       const result = {
-        dailyCalories: parsed.dailyCalories || 2000,
+        dailyCalories: typeof parsed.dailyCalories === 'number' ? parsed.dailyCalories : 2000,
         macros: {
-          protein: parsed.macros?.protein || { grams: 150, percentage: 30 },
-          carbs: parsed.macros?.carbs || { grams: 200, percentage: 40 },
-          fats: parsed.macros?.fats || { grams: 67, percentage: 30 }
+          protein: (parsed.macros?.protein && typeof parsed.macros.protein === 'object') 
+            ? parsed.macros.protein 
+            : { grams: 150, percentage: 30 },
+          carbs: (parsed.macros?.carbs && typeof parsed.macros.carbs === 'object') 
+            ? parsed.macros.carbs 
+            : { grams: 200, percentage: 40 },
+          fats: (parsed.macros?.fats && typeof parsed.macros.fats === 'object') 
+            ? parsed.macros.fats 
+            : { grams: 67, percentage: 30 }
         },
         mealPlan: {
-          breakfast: Array.isArray(parsed.mealPlan?.breakfast) ? parsed.mealPlan.breakfast.slice(0, 2) : ['Eggs with toast', 'Greek yogurt'],
-          lunch: Array.isArray(parsed.mealPlan?.lunch) ? parsed.mealPlan.lunch.slice(0, 2) : ['Chicken salad', 'Brown rice'],
-          dinner: Array.isArray(parsed.mealPlan?.dinner) ? parsed.mealPlan.dinner.slice(0, 2) : ['Salmon', 'Vegetables'],
-          snacks: Array.isArray(parsed.mealPlan?.snacks) ? parsed.mealPlan.snacks.slice(0, 2) : ['Protein shake', 'Nuts']
+          breakfast: Array.isArray(parsed.mealPlan?.breakfast) 
+            ? parsed.mealPlan.breakfast.slice(0, 2) 
+            : ['Eggs with toast', 'Greek yogurt'],
+          lunch: Array.isArray(parsed.mealPlan?.lunch) 
+            ? parsed.mealPlan.lunch.slice(0, 2) 
+            : ['Chicken salad', 'Brown rice'],
+          dinner: Array.isArray(parsed.mealPlan?.dinner) 
+            ? parsed.mealPlan.dinner.slice(0, 2) 
+            : ['Salmon', 'Vegetables'],
+          snacks: Array.isArray(parsed.mealPlan?.snacks) 
+            ? parsed.mealPlan.snacks.slice(0, 2) 
+            : ['Protein shake', 'Nuts']
         },
-        tips: Array.isArray(parsed.tips) ? parsed.tips.slice(0, 2) : ['Stay hydrated', 'Eat protein with meals'],
-        supplements: Array.isArray(parsed.supplements) ? parsed.supplements.slice(0, 2) : ['Whey protein', 'Multivitamin']
+        tips: Array.isArray(parsed.tips) 
+          ? parsed.tips.slice(0, 2) 
+          : ['Stay hydrated', 'Eat protein with meals'],
+        supplements: Array.isArray(parsed.supplements) 
+          ? parsed.supplements.slice(0, 2) 
+          : ['Whey protein', 'Multivitamin']
       };
       
       return result;
