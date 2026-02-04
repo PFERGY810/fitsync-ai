@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FitSync AI - QR Code</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #0A0A0A 0%, #1C1C1E 100%);
+      color: #FFFFFF;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      background: rgba(28, 28, 30, 0.8);
+      border: 2px solid rgba(0, 212, 255, 0.3);
+      border-radius: 20px;
+      padding: 40px;
+      text-align: center;
+      box-shadow: 0 0 40px rgba(0, 212, 255, 0.2);
+      max-width: 500px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #00D4FF;
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+      letter-spacing: 1px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #ABABAB;
+      margin-bottom: 30px;
+    }
+    .qr-code {
+      background: #FFFFFF;
+      padding: 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+      box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+    }
+    .qr-code img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .url {
+      background: rgba(0, 212, 255, 0.1);
+      border: 1px solid rgba(0, 212, 255, 0.3);
+      border-radius: 8px;
+      padding: 15px;
+      margin: 20px 0;
+      word-break: break-all;
+      font-family: monospace;
+      font-size: 12px;
+      color: #00D4FF;
+    }
+    .instructions {
+      margin-top: 30px;
+      text-align: left;
+      font-size: 13px;
+      color: #ABABAB;
+      line-height: 1.6;
+    }
+    .instructions ol {
+      margin-left: 20px;
+      margin-top: 10px;
+    }
+    .instructions li {
+      margin-bottom: 8px;
+    }
+    .repo-link {
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .repo-link a {
+      color: #00D4FF;
+      text-decoration: none;
+      font-size: 12px;
+    }
+    .repo-link a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>FITSYNC OS v2.0</h1>
+    <p class="subtitle">Scan QR Code with Expo Go (iOS)</p>
+    
+    <div class="qr-code">
+      <img src="data:image/png;base64,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" alt="QR Code" />
+    </div>
+    
+    <div class="url">exp://192.168.1.6:8081</div>
+    
+    <div class="instructions">
+      <strong>Instructions:</strong>
+      <ol>
+        <li>Make sure Expo dev server is running: <code>npm start</code></li>
+        <li>Open Expo Go app on your iOS device</li>
+        <li>Scan the QR code above</li>
+        <li>The app will load on your device</li>
+      </ol>
+    </div>
+    
+    <div class="repo-link">
+      <a href="https://github.com/PFERGY810/Cycle-coach.git" target="_blank">GitHub Repository</a>
+    </div>
+  </div>
+</body>
+</html>

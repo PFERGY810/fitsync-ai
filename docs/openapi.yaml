@@ -1,0 +1,148 @@
+openapi: 3.0.3
+info:
+  title: FitSync AI API
+  version: 2.0.0
+servers:
+  - url: /api
+paths:
+  /coach/chat:
+    post:
+      summary: AI coach chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoachChatRequest"
+      responses:
+        "200":
+          description: AI response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachChatResponse"
+  /coach/analyze-physique-detailed:
+    post:
+      summary: Physique analysis (vision)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhysiqueAnalysisRequest"
+      responses:
+        "200":
+          description: Analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysiqueAnalysisResponse"
+  /coach/generate-program:
+    post:
+      summary: Generate training program
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgramRequest"
+      responses:
+        "200":
+          description: Program
+  /coach/comprehensive-macros:
+    post:
+      summary: Macro calculation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MacroRequest"
+      responses:
+        "200":
+          description: Macro targets
+  /food/search:
+    get:
+      summary: Food search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Food results
+  /food/barcode/{barcode}:
+    get:
+      summary: Barcode lookup
+      parameters:
+        - name: barcode
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Food item
+  /food/details/{fdcId}:
+    get:
+      summary: USDA Food details
+      parameters:
+        - name: fdcId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Food item
+  /looksmaxx/analyze-face:
+    post:
+      summary: Facial analysis (vision)
+  /looksmaxx/generate-protocol:
+    post:
+      summary: Generate looksmaxx protocol
+  /looksmaxx/compounds:
+    get:
+      summary: Looksmaxx compounds
+  /looksmaxx/log-treatment:
+    post:
+      summary: Log looksmaxx treatments
+  /looksmaxx/progress:
+    get:
+      summary: Looksmaxx progress data
+components:
+  schemas:
+    CoachChatRequest:
+      type: object
+      properties:
+        message:
+          type: string
+        profile:
+          type: object
+    CoachChatResponse:
+      type: object
+      properties:
+        response:
+          type: string
+    PhysiqueAnalysisRequest:
+      type: object
+      properties:
+        photos:
+          type: object
+    PhysiqueAnalysisResponse:
+      type: object
+      properties:
+        overallScore:
+          type: number
+    ProgramRequest:
+      type: object
+      properties:
+        profile:
+          type: object
+    MacroRequest:
+      type: object
+      properties:
+        profile:
+          type: object

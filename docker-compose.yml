@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: fitsync_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fitsync
+    ports:
+      - "5432:5432"
+    volumes:
+      - fitsync_pgdata:/var/lib/postgresql/data
+
+volumes:
+  fitsync_pgdata:
+

@@ -1,0 +1,644 @@
+Fine. Pure PRD. No MVP kiddie pool. Full breakdown of every screen, every component, every AI process. No motivational speeches. No “roadmap.” Just the damn product doc.
+
+⸻
+
+FitSync AI — Full PRD
+
+(Advanced, Page-Level Breakdown + System Intelligence)
+
+⸻
+
+1. PRODUCT PURPOSE
+
+A fully autonomous AI hypertrophy system that:
+	•	reads physique trends over time
+	•	analyzes training data and lifting form
+	•	updates macros weekly
+	•	rewrites the user’s split based on measurable recovery + volume
+	•	acts as a coach, not a logbook
+
+User interacts through photos, videos, and daily logging. App responds by changing their entire program, not just collecting data.
+
+⸻
+
+2. GLOBAL SYSTEM ARCHITECTURE
+
+AI system composed of 5 subsystems:
+
+2.1 PHYSIQUE MODEL
+
+Inputs:
+	•	front/side/back photos
+	•	lighting/pose normalization
+	•	segmentation mask
+	•	skeletal landmarks
+	•	volumetric estimation model
+
+Outputs:
+	•	muscle group score vs prior week
+	•	symmetry delta left/right
+	•	fat distribution shift
+	•	posture + mobility flags
+	•	recommendations weight
+	•	weak targets priority array
+
+Core Logic:
+
+GrowthScore = (VolumeChangeNormalized * SymmetryCorrectionWeight) – FatGainPenalty
+
+
+⸻
+
+2.2 FORM MODEL
+
+Inputs:
+	•	single-exercise video (bench/squat/row/etc.)
+	•	rep segmentation
+	•	pose vectors
+	•	load metadata
+	•	bar path extraction
+
+Outputs:
+	•	cue list
+	•	warning list (risk flags)
+	•	per-rep score
+	•	RIR estimation
+	•	technical breakdown
+
+Core Logic:
+
+RepQuality = DepthScore + JointIntegrityScore + BarPathStability – VelocityDrop
+
+
+⸻
+
+2.3 MACRO ENGINE
+
+Inputs:
+	•	weight trendline (7-day rolling)
+	•	caloric log
+	•	training performance
+	•	recovery inputs
+
+Outputs:
+	•	macros for next 7 days
+	•	carb cycling parameters
+	•	daily calories
+
+Core Logic:
+
+If WeightTrend >1% loss → +30-50g carbs
+If WeightTrend <0.4% loss → -25g carbs
+
+
+⸻
+
+2.4 SPLIT ENGINE
+
+Inputs:
+	•	muscle scores
+	•	volume history
+	•	soreness score
+	•	rep quality
+	•	strength curve
+
+Outputs:
+	•	new weekly split
+	•	sets per muscle
+	•	rep targets
+	•	RIR targets
+	•	tempo cues
+
+Core Logic:
+
+If WeakPointScore[Chest] high → +2 sets/weekly
+If FatigueScore high → remove junk sets
+
+
+⸻
+
+2.5 PROGRESS ENGINE
+
+Inputs:
+	•	photo deltas week to week
+	•	form reports
+	•	load progress
+	•	bodyweight trend
+
+Outputs:
+	•	combined scoreboard
+	•	coach notes
+	•	“top 3 fixes” priority instruction
+
+⸻
+
+3. APP STRUCTURE
+
+Primary Screens:
+	1.	Onboarding
+	2.	Dashboard
+	3.	Daily Check-In
+	4.	Weekly Update
+	5.	Training Session
+	6.	Program Overview
+	7.	Form Upload + Analysis
+	8.	Physique Upload + Analysis
+	9.	Nutrition
+	10.	Settings
+
+Now breakdown each in detail.
+
+⸻
+
+4. SCREEN-LEVEL BREAKDOWN
+
+4.1 ONBOARDING
+
+Page: Welcome
+
+Components
+	•	Logo
+	•	“Create Account”
+	•	Google/Apple Login
+	•	Legal links
+
+AI Running
+	•	none
+
+⸻
+
+Page: Enter Stats
+
+Inputs
+	•	Height
+	•	Weight
+	•	Age
+	•	Sex
+	•	Goal (Cut/Bulk/Recomp)
+
+Components
+	•	text fields
+	•	segmented controls
+	•	next button
+
+AI Running
+	•	initial macro computation:
+
+TDEE = Katch-McArdle + ActivityCoefficient
+Macros based on goal:
+Cut → high protein, aggressive deficit
+Bulk → moderate surplus
+Recomp → mild surplus within week fluctuations
+
+
+⸻
+
+Page: Initial Photos
+
+Components
+	•	camera overlay grid
+	•	silhouette pose guide
+	•	3 photo capture buttons
+
+AI Running
+	•	baseline segmentation
+	•	baseline muscle map
+	•	posture baseline
+	•	symmetry baseline
+
+Stored in user profile.
+
+⸻
+
+Page: Dashboard Onboarding
+
+Components
+	•	short explanation cards
+	•	“What happens each week”
+	•	Finish button
+
+AI Running
+	•	none
+
+⸻
+
+4.2 DASHBOARD
+
+The command center.
+
+Components
+	•	“Today’s Training” widget
+	•	Macro Rings (P/F/C)
+	•	Calories Remaining
+	•	Weight Trend Graph (7 days)
+	•	Recovery Score Tile
+	•	Upcoming Photo Reminder
+	•	“Coach Notes” box
+	•	Navigation Bar (Home/Train/Nutrition/Physique)
+
+AI Running
+	•	real-time recommendation selection:
+
+If user recovery < threshold → swap heavy compounds for isolations
+
+	•	feed coach notes based on:
+	•	last workout
+	•	last scan
+	•	weight trend
+
+⸻
+
+4.3 DAILY CHECK-IN
+
+User logs state so AI can modulate workload.
+
+Components
+	•	sliders:
+	•	sleep hours
+	•	stress 1-7
+	•	soreness 1-7 (body segment)
+	•	weight input
+	•	optional note
+
+AI Running
+	•	fatigue model update:
+
+FatigueScore = SleepDeficit + StressWeight + SorenessWeighted
+
+This feeds into:
+	•	next day’s training difficulty
+	•	next week’s split
+
+⸻
+
+4.4 WEEKLY UPDATE
+
+Structured ritual where the AI updates everything.
+
+Page: Photo Upload
+Components
+	•	front/side/back frame
+	•	camera overlay
+	•	distance guide
+	•	upload button
+
+AI Running
+	•	image normalization
+	•	segmentation
+	•	volume estimation per muscle
+	•	symmetry delta:
+
+SymmetryDiff = (L-R) / Avg
+
+	•	posture detection:
+	•	shoulder tilt
+	•	pelvic tilt
+	•	forward head posture
+	•	kyphosis approx
+
+⸻
+
+Page: Results
+Components
+	•	Muscle Heatmap (color-coded)
+	•	Delta list (e.g., +3.1% front delts)
+	•	Symmetry warning list
+	•	Posture flag icons
+	•	“Top 3 Training Changes”
+	•	Apply Program button
+
+AI Running
+	•	rank weak points:
+
+PriorityScore = GrowthScore/VolumeAllocated
+
+	•	training prescription:
+
+If PriorityScore high → add targeted sets
+
+
+⸻
+
+4.5 TRAINING
+
+Page: Program Overview
+
+Components
+	•	weekly calendar view (M-S)
+	•	per day:
+	•	target muscle
+	•	exercises count
+	•	volume tile
+	•	pie chart of weekly volume
+	•	RIR target legend
+
+AI Running
+	•	hidden generation:
+
+volume distributed by:
+    WeakPointWeight
+    RecoveryHistory
+    FatigueScore
+
+
+⸻
+
+Page: Training Session
+
+Components
+	•	Exercise list:
+	•	ExerciseCard
+	•	name
+	•	sets x reps
+	•	target RIR
+	•	tempo cue
+	•	“upload form” icon
+	•	Set tracker:
+	•	weight input
+	•	reps input
+	•	RIR selector
+	•	Rest timer
+	•	Notes field
+	•	Finish Session button
+
+AI Running
+	•	per-set RIR analysis:
+
+If user hits RIR lower than target → increase weight next session
+
+	•	velocity estimation from video (optional)
+	•	rep quality trend building
+
+After session:
+	•	stores load
+	•	stores RIR
+	•	stores noted failure points
+
+⸻
+
+4.6 FORM ANALYSIS
+
+Page: Video Upload
+
+Components
+	•	pick exercise
+	•	upload button
+	•	“How to film guide”
+
+AI Running (after upload)
+	•	rep segmentation (temporal)
+	•	body landmarks per frame
+	•	bar path redraw
+	•	joint angle calculation
+
+Metrics:
+	•	depth (squat/bench)
+	•	bar drift (chest)
+	•	knee valgus
+	•	spinal angle deviation
+	•	rep velocity loss %
+
+Outputs:
+	•	score 0-100
+	•	cue list (short):
+	•	“brace”
+	•	“heels down”
+	•	“drive elbows”
+	•	“hot reps” highlight
+
+⸻
+
+4.7 PHYSIQUE ANALYSIS
+
+Page: Weekly Photo History
+
+Components
+	•	grid of weeks
+	•	tap for compare
+	•	slider before/after
+	•	metric delta list:
+	•	weight
+	•	estimated LBM change
+	•	body fat trend direction
+
+AI Running
+	•	smoothing:
+
+LBMTrend = EMA(volume_estimate)
+
+	•	not absolute, just relative
+
+⸻
+
+Page: Symmetry Map
+
+Components
+	•	body diagram
+	•	left vs right % difference
+	•	suggested fixes
+	•	set allocation per side
+
+AI Running
+	•	side-specific volume suggestion:
+
+If L pec lower → unilateral first sets to left
+
+
+⸻
+
+4.8 NUTRITION
+
+Page: Macro Dashboard
+
+Components
+	•	macronutrient ring chart
+	•	calories remaining
+	•	protein bar
+	•	fat bar
+	•	carb bar
+	•	“Adjust Next Week” preview
+
+AI Running
+	•	weight trend analysis:
+
+Trend = (BW_today - BW_7days_avg)
+
+	•	suggest macro adjustment values
+
+⸻
+
+Page: Log Foods
+
+Components
+	•	quick add:
+	•	protein sources
+	•	carb staples
+	•	fats
+	•	favorites list
+	•	barcode scan (later)
+
+AI Running
+	•	identifies item macro composition from DB
+	•	tracks weekly compliance score:
+
+Compliance = DaysOnTarget / 7
+
+
+⸻
+
+5. DATA MODELS
+
+User Profile
+
+UserID
+Height
+WeightHistory[]
+Goal
+MacroTargets
+SplitTemplate
+VolumeHistory[]
+RecoveryHistory[]
+CoachNotes[]
+
+PhotoRecord
+
+PhotoID
+UserID
+Date
+FrontImage
+SideImage
+BackImage
+SegmentationMask
+MuscleScores[]
+SymmetryScores[]
+PostureFlags[]
+
+VideoRecord
+
+VideoID
+UserID
+ExerciseID
+RepScores[]
+CueList[]
+VelocityLoss
+RiskFlags[]
+
+WorkoutSession
+
+SessionID
+Date
+Exercises[]
+Sets[]
+RIR_Log[]
+VolumeLoad[]
+
+
+⸻
+
+6. AI PIPELINES
+
+6.1 Physique Pipeline
+	1.	normalize image orientation
+	2.	run human segmentation
+	3.	extract skeletal joints
+	4.	estimate muscle area by region
+	5.	compute deltas week-to-week
+	6.	update progress models
+	7.	feed weak points into SplitEngine
+
+⸻
+
+6.2 Form Pipeline
+	1.	segment reps
+	2.	pose detection per frame
+	3.	bar path extraction
+	4.	angle deviation scoring
+	5.	velocity drop per rep
+	6.	assign rep quality
+	7.	produce cue list
+	8.	compute failure point
+	9.	store for trend
+
+⸻
+
+6.3 Split Pipeline
+
+Inputs:
+	•	WeakPointScore
+	•	VolumeHistory
+	•	RecoveryScore
+	•	ProgressTrend
+
+Process:
+	•	adjusts weekly volume per muscle
+	•	picks exercise variations
+	•	sets RIR targets
+	•	assigns unilateral work if asymmetry
+
+⸻
+
+6.4 Macro Pipeline
+
+Inputs:
+	•	WeightHistory
+	•	CalorieLog
+	•	TrainingLoad
+
+Process:
+	•	calculates weekly avg
+	•	compares to target
+	•	calculates ± grams
+	•	outputs new macros
+
+⸻
+
+7. UI COMPONENTS (ATOMIC)
+
+Global:
+	•	TileCard
+	•	GraphPanel
+	•	TrendLine
+	•	MacroRing
+	•	BeforeAfterSlider
+	•	CameraOverlay
+	•	SetTrackerRow
+	•	RestTimer
+	•	CueBubble
+	•	MuscleHeatmapCanvas
+	•	SymmetryChart
+	•	BarPathCanvas
+	•	RIRPicker
+	•	SorenessPicker
+	•	SleepPicker
+	•	StressPicker
+
+All components are independent and reusable.
+
+⸻
+
+8. BEHAVIOR RULES
+	•	AI alone controls program changes.
+	•	User does not tweak volume manually.
+	•	Every 7 days: full re-design of split.
+	•	Daily: micro-adaptation from recovery.
+	•	Form issues override volume progression.
+	•	Asymmetry injects unilateral volume automatically.
+
+⸻
+
+9. INTELLIGENCE PRIORITY
+
+AI prioritizes:
+	1.	fixing weak points
+	2.	maximizing LBM gain
+	3.	minimizing injury risk
+	4.	maintaining symmetry
+	5.	controlling fat gain
+
+⸻
+
+Done.
+Pure PRD.
+No “MVP.”
+No sales pitch.
+Every page, every component, every AI loop laid out.

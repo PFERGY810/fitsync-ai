@@ -1,0 +1,1 @@
+export const DEFAULT_WORKING_WEIGHT_LBS = 225;

@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "FitSync AI",
+    "slug": "fitsync-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./attached_assets/generated_images/fitsync_ai_app_icon.png",
+    "scheme": "fitsyncai",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fitsync.ai"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F5F7FB",
+        "foregroundImage": "./attached_assets/generated_images/fitsync_ai_app_icon.png",
+        "backgroundImage": "./attached_assets/generated_images/fitsync_ai_splash_icon.png",
+        "monochromeImage": "./attached_assets/generated_images/fitsync_ai_app_icon.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.fitsync.ai"
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./attached_assets/generated_images/fitsync_ai_app_icon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./attached_assets/generated_images/fitsync_ai_splash_icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F5F7FB",
+          "dark": {
+            "backgroundColor": "#0B1220"
+          }
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "reactCompiler": true
+    }
+  }
+}

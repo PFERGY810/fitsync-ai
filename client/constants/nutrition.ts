@@ -1,0 +1,5 @@
+export const KG_TO_LB = 2.20462;
+
+export const DEFAULT_CALORIE_MULTIPLIER = 15;
+export const DEFAULT_PROTEIN_MULTIPLIER = 1.1;
+export const DEFAULT_FAT_MULTIPLIER = 0.35;
