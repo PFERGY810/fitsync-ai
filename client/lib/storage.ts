@@ -12,8 +12,8 @@ import type {
   WeeklyProgram,
   PhysiquePhoto,
   TierRankingEntry,
-  PhysiqueAnalysis,
 } from "@/types";
+import type { PhysiqueAnalysisResult } from "@/types/onboarding";
 
 const KEYS = {
   USER_PROFILE: "fitsync_user_profile",
@@ -221,18 +221,18 @@ export async function isOnboardingComplete(): Promise<boolean> {
     if (localProfile?.onboardingCompleted === true || localProfile?.onboardingComplete === true) {
       return true;
     }
-    
+
     // If no local profile or not complete, try server with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
-    
+
     try {
       const response = await fetch(
         new URL("/api/profile", getApiUrl()).toString(),
         { signal: controller.signal }
       );
       clearTimeout(timeoutId);
-      
+
       if (response.ok) {
         const serverProfile = await response.json();
         if (serverProfile) {
@@ -245,7 +245,7 @@ export async function isOnboardingComplete(): Promise<boolean> {
       // Network error or timeout - use local data
       console.log("Using local onboarding status, server unavailable");
     }
-    
+
     return false;
   } catch (error) {
     console.error("Error checking onboarding status:", error);
@@ -433,8 +433,8 @@ export async function saveTierRanking(
   await setItem(KEYS.TIER_RANKING, ranking);
 }
 
-export async function getPhysiqueAnalysis(): Promise<PhysiqueAnalysis | null> {
-  return getItem<PhysiqueAnalysis | null>(KEYS.PHYSIQUE_ANALYSIS, null);
+export async function getPhysiqueAnalysis(): Promise<PhysiqueAnalysisResult | null> {
+  return getItem<PhysiqueAnalysisResult | null>(KEYS.PHYSIQUE_ANALYSIS, null);
 }
 
 export const storage = {

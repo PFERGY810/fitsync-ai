@@ -104,6 +104,7 @@ export interface MuscleRating {
   rating: number;
   status: "lagging" | "average" | "strong" | "dominant" | "not_visible";
   observations: string[];
+  visualKeywords: string[];
   priority: "high" | "medium" | "low";
 }
 
@@ -169,15 +170,15 @@ export interface CycleCompound {
 export interface CompoundInfo {
   name: string;
   category:
-    | "testosterone"
-    | "19-nor"
-    | "dht"
-    | "oral"
-    | "peptide"
-    | "sarm"
-    | "ai"
-    | "pct"
-    | "other";
+  | "testosterone"
+  | "19-nor"
+  | "dht"
+  | "oral"
+  | "peptide"
+  | "sarm"
+  | "ai"
+  | "pct"
+  | "other";
   defaultEster?: string;
   defaultAdministration: AdministrationMethod;
   typicalDosageRange: {

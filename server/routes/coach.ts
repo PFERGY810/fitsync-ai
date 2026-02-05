@@ -256,7 +256,8 @@ Provide the response in JSON only, with this exact structure:
       "muscle": "string",
       "rating": 1-10,
       "status": "underdeveloped|average|strong|dominant",
-      "observations": ["string"],
+      "observations": ["string (MUST reference specific visual details like striations, shadowing, or lack of thickness)"],
+      "visualKeywords": ["<3-4 specific clinical/visual markers you see for this muscle (e.g., 'distal quad separation', 'lower lat insertion visibility', 'serratus anterior definition')>"],
       "priority": "high|medium|low"
     }
   ],
@@ -1292,7 +1293,7 @@ Return JSON:
     "whatISee": "<MANDATORY: Describe 3-4 sentences with SPECIFIC visual details - lighting conditions, pose, visible veins (where), striations (which muscles), ab definition (how many packs), quad sweep/VMO (if legs visible), pump state>",
     "vascularity": "<MANDATORY: none/minimal/moderate/prominent - MUST specify WHERE: 'biceps veins visible', 'forearm vascularity', 'deltoid veins', 'abdominal veins', 'quad veins', or 'no visible vascularity'>",
     "absVisibility": "<MANDATORY: Describe exactly what you see - 'full six-pack visible with deep separations', 'upper 4 abs visible but lower abs not defined', 'abs barely visible', 'no ab definition visible'>",
-    "overallImpression": "<One sentence honest impression based on SPECIFIC visual observations you described above>"
+    "overallImpression": "<One sentence honest impression based on SPECIFIC visual observations. AT LEAST 3 terms from your logicKeywords list MUST be referenced here to prove the scan was successful.>"
   },
   "overallScore": <1-100 - average gym-goer is 40-55, trained lifter 55-70, advanced 70-85, competitive 85+>,
   "goldenRatioScore": <1-100 based on shoulder-to-waist ratio you OBSERVE>,
@@ -1304,7 +1305,8 @@ Return JSON:
       "muscle": "<Muscle Name>",
       "rating": <1-10 - be HONEST, 5 is average, most muscles should be 4-6 unless exceptional>,
       "status": "<lagging|average|strong|dominant|not_visible>",
-      "observations": ["<SPECIFIC visual detail you observed>", "<Another SPECIFIC detail>"],
+      "observations": ["<SPECIFIC visual detail you observed in the photo>", "<Another SPECIFIC detail>"],
+      "visualKeywords": ["<3-4 specific clinical/visual markers you see for this muscle (e.g., 'distal quad separation', 'lower lat insertion visibility', 'serratus anterior definition')>"],
       "priority": "<high|medium|low>"
     }
   ],

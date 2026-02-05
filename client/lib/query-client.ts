@@ -16,7 +16,7 @@ export function getApiUrl(): string {
   if (!host) {
     // Fallback for development/local testing
     // Hardcoded Tunnel URL for remote debugging
-    return "https://tree-boxes-bathe.loca.lt";
+    return "https://fitsync-parker.loca.lt";
   }
   throw new Error(
     "EXPO_PUBLIC_DOMAIN is required in production. Please configure your environment variables.",

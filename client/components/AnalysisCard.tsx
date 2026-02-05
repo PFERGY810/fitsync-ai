@@ -21,6 +21,7 @@ interface AnalysisCardProps {
     reps: string;
     focus: string;
   }>;
+  visualKeywords?: string[];
 }
 
 export function AnalysisCard({
@@ -33,6 +34,7 @@ export function AnalysisCard({
   status,
   observations = [],
   priorityExercises = [],
+  visualKeywords = [],
 }: AnalysisCardProps) {
   const { theme } = useTheme();
 
@@ -65,7 +67,7 @@ export function AnalysisCard({
       case "not_visible":
         return "Not Visible";
       default:
-        return status.toUpperCase();
+        return (status as any).toUpperCase();
     }
   };
 
@@ -154,6 +156,21 @@ export function AnalysisCard({
         </View>
       )}
 
+      {visualKeywords.length > 0 && (
+        <View style={styles.keywordsContainer}>
+          <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+            Visual Markers:
+          </ThemedText>
+          <View style={styles.keywordsList}>
+            {visualKeywords.map((kw, i) => (
+              <View key={i} style={[styles.keywordChip, { backgroundColor: theme.backgroundSecondary }]}>
+                <ThemedText type="small" style={styles.keywordText}>{kw}</ThemedText>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
       {observations.length > 0 && (
         <View style={styles.observations}>
           <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
@@ -185,9 +202,11 @@ export function AnalysisCard({
                 <ThemedText type="small" style={[styles.exerciseDetails, { color: theme.textSecondary }]}>
                   {exercise.sets} sets × {exercise.reps} reps
                 </ThemedText>
-                <ThemedText type="small" style={[styles.exerciseFocus, { color: theme.textSecondary }]}>
-                  {exercise.focus}
-                </ThemedText>
+                {exercise.focus ? (
+                  <ThemedText type="small" style={[styles.exerciseFocus, { color: theme.textSecondary }]}>
+                    {exercise.focus}
+                  </ThemedText>
+                ) : null}
               </View>
               <ThemedText type="small" style={[styles.findSimilarLink, { color: Colors.dark.primary }]}>
                 Find similar &gt;
@@ -321,5 +340,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     marginTop: 2,
+  },
+  keywordsContainer: {
+    marginTop: Spacing.md,
+  },
+  keywordsList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
+  },
+  keywordChip: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(128, 128, 128, 0.3)",
+  },
+  keywordText: {
+    fontSize: 10,
+    fontWeight: "600",
+    opacity: 0.9,
   },
 });

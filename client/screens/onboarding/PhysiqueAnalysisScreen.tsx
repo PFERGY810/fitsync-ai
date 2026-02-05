@@ -434,6 +434,7 @@ export default function PhysiqueAnalysisScreen() {
                   proportion={detailedMetrics?.proportion}
                   status={muscle.status}
                   observations={muscle.observations}
+                  visualKeywords={(muscle as any).visualKeywords || []}
                   priorityExercises={
                     (muscle as any).priorityExercises?.map((ex: any) => ({
                       name: ex.name || ex.exercise,

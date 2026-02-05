@@ -3,17 +3,26 @@ const qrcode = require("qrcode-terminal");
 
 function getLocalIP() {
   const interfaces = os.networkInterfaces();
+  const candidates = [];
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name] || []) {
       if (iface.family === "IPv4" && !iface.internal) {
-        return iface.address;
+        candidates.push(iface.address);
       }
     }
   }
-  return "localhost";
+  // Filter out common virtual adapter IPs
+  const realCandidates = candidates.filter(ip => !ip.startsWith("192.168.56.") && !ip.startsWith("169.254."));
+
+  // Prioritize 10.x.x.x (often used in school/work networks) or 192.168.x.x
+  const best = realCandidates.find(ip => ip.startsWith("10.")) ||
+    realCandidates.find(ip => ip.startsWith("192.168.")) ||
+    realCandidates[0];
+
+  return best || "localhost";
 }
 
-const localIP = "10.50.108.120"; // Hardcoded for troubleshooting
+const localIP = getLocalIP();
 const expoPort = process.env.EXPO_PORT || "8081";
 const expoUrl = `exp://${localIP}:${expoPort}`;
 
