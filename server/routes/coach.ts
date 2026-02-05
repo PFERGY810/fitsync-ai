@@ -1,6 +1,6 @@
 import type { Express } from "express";
-import OpenAI from "openai";
 import { db } from "../db";
+import { openai, withOpenAiRetry } from "../utils/openai-client";
 import { eq, desc, and } from "drizzle-orm";
 import {
   profiles,
@@ -15,6 +15,21 @@ import { buildAiContext } from "../utils/ai-context";
 import { validatePhotos, sanitizeAiResponse, rateLimitMiddleware } from "../utils/validation";
 import { validateProfilePayload } from "../validation";
 import { encryptPayload } from "../utils/encryption";
+import { safeJsonParse } from "../utils/safe-json";
+import type {
+  CycleCompound,
+  MuscleRating,
+  MedicationWithDosage,
+  DailyCheckIn,
+  ProgramDay,
+  ProgramExercise,
+  MedicationImpact,
+  MedicationImpactEffect,
+  SearchSnippet,
+  CompoundData,
+  EsterInfo,
+  TransformedCompound,
+} from "../types";
 import {
   HYPERTROPHY_SCIENCE,
   TRAINING_SPLITS,
@@ -43,12 +58,8 @@ import {
   AI_SYSTEM_CONTEXT,
   getMedicationImpacts,
 } from "../knowledge";
-
-const openai = new OpenAI({
-  // Allow server to boot even if keys aren't set yet.
-  // Requests will fail with 401 until a real key is provided.
-  apiKey: process.env.OPENAI_API_KEY || "missing",
-});
+import { runPhysiqueAnalysis } from "../services/physique-service";
+import { generateProgram } from "../services/program-service";
 
 function parseBodyFatEstimate(estimate?: string): number | null {
   if (!estimate) return null;
@@ -60,400 +71,7 @@ function parseBodyFatEstimate(estimate?: string): number | null {
   return avg / 100;
 }
 
-type PhysiqueAnalysisPayload = {
-  photos: {
-    front?: string;
-    side?: string;
-    back?: string;
-    legs?: string;
-  };
-  profile?: any;
-  userId?: string;
-  profileId?: string;
-};
-
-export async function runPhysiqueAnalysis(payload: PhysiqueAnalysisPayload) {
-  const { photos, profile: incomingProfile, userId, profileId } = payload;
-  const aiContext = await buildAiContext({
-    profile: incomingProfile,
-    profileId,
-    userId,
-  });
-  const profile = aiContext.profile || incomingProfile;
-
-  console.log("=== PHYSIQUE ANALYSIS REQUEST ===");
-  console.log("Photos received:", {
-    front: photos?.front
-      ? `${photos.front.substring(0, 50)}... (${photos.front.length} chars)`
-      : "none",
-    side: photos?.side
-      ? `${photos.side.substring(0, 50)}... (${photos.side.length} chars)`
-      : "none",
-    back: photos?.back
-      ? `${photos.back.substring(0, 50)}... (${photos.back.length} chars)`
-      : "none",
-    legs: photos?.legs
-      ? `${photos.legs.substring(0, 50)}... (${photos.legs.length} chars)`
-      : "none",
-  });
-  console.log("Profile stats:", {
-    height: profile?.height,
-    weight: profile?.weight,
-    age: profile?.age,
-    sex: profile?.sex,
-    goal: profile?.goal,
-  });
-
-  const hasPhotos =
-    photos && (photos.front || photos.side || photos.back || photos.legs);
-  if (!hasPhotos) {
-    throw new Error("No photos provided for analysis");
-  }
-
-  const photoDescriptions = [];
-  if (photos?.front) photoDescriptions.push("front pose");
-  if (photos?.side) photoDescriptions.push("side pose");
-  if (photos?.back) photoDescriptions.push("back pose");
-  if (photos?.legs) photoDescriptions.push("legs pose (quad focus)");
-
-  const cycleContext =
-    profile?.cycleInfo?.compounds?.length > 0
-      ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: any) => `${c.name} ${c.dosageAmount}${c.dosageUnit}`).join(", ")}`
-      : "Natural lifter";
-
-  const strengthContext = profile?.strengthGoals
-    ? `
-Current Lifts:
-- Bench: ${profile.strengthGoals.bench?.current || 0} lbs (target: ${profile.strengthGoals.bench?.target || 0} lbs)
-- Squat: ${profile.strengthGoals.squat?.current || 0} lbs (target: ${profile.strengthGoals.squat?.target || 0} lbs)
-- Deadlift: ${profile.strengthGoals.deadlift?.current || 0} lbs (target: ${profile.strengthGoals.deadlift?.target || 0} lbs)
-- OHP: ${profile.strengthGoals.ohp?.current || 0} lbs (target: ${profile.strengthGoals.ohp?.target || 0} lbs)
-- Pull-ups: ${profile.strengthGoals.pullups?.current || 0} reps (target: ${profile.strengthGoals.pullups?.target || 0} reps)`
-    : "";
-
-  // Determine which muscles are visible based on photo angles
-  const visibleMuscles: string[] = [];
-  const visiblePostureChecks: string[] = [];
-
-  if (photos?.front) {
-    visibleMuscles.push(
-      "Chest (Pectorals)",
-      "Shoulders (Front Deltoids)",
-      "Arms (Biceps visible, Triceps partial)",
-      "Core (Abs & Obliques)",
-      "Quadriceps (front view)",
-    );
-    visiblePostureChecks.push(
-      "shoulder symmetry",
-      "rib flare",
-      "hip alignment",
-      "quad symmetry",
-    );
-  }
-  if (photos?.side) {
-    visibleMuscles.push(
-      "Shoulders (Side Deltoids)",
-      "Arms (Triceps profile)",
-      "Glutes (side profile)",
-      "Hamstrings (side view)",
-      "Calves (side view)",
-    );
-    visiblePostureChecks.push(
-      "anterior pelvic tilt",
-      "kyphosis/rounded upper back",
-      "forward head posture",
-      "knee hyperextension",
-    );
-  }
-  if (photos?.back) {
-    visibleMuscles.push(
-      "Back (Lats, Traps, Rhomboids)",
-      "Shoulders (Rear Deltoids)",
-      "Glutes (back view)",
-      "Hamstrings (back view)",
-      "Calves (back view)",
-    );
-    visiblePostureChecks.push(
-      "scapular winging",
-      "spinal alignment",
-      "hip height symmetry",
-      "lat width symmetry",
-    );
-  }
-  if (photos?.legs) {
-    visibleMuscles.push(
-      "Quadriceps (detailed - vastus lateralis, rectus femoris, vastus medialis)",
-      "Hamstrings (front view partial)",
-      "Calves (gastrocnemius, soleus)",
-      "Adductors",
-    );
-    visiblePostureChecks.push(
-      "quad sweep development",
-      "VMO development",
-      "calf symmetry",
-      "knee valgus",
-    );
-  }
-
-  const prompt = `${AI_SYSTEM_CONTEXT}
-
-You are an expert physique analyst performing REAL VISUAL ANALYSIS of these photos. This is NOT a generic assessment.
-
-**CRITICAL: YOU MUST ACTUALLY LOOK AT THE PHOTOS AND DESCRIBE SPECIFIC VISUAL DETAILS**
-
-**MANDATORY VISUAL DESCRIPTION REQUIREMENTS - YOU MUST INCLUDE ALL OF THESE:**
-
-1. LIGHTING CONDITIONS: Describe the lighting (harsh gym lighting, natural window light, dim, shadows present, etc.)
-
-2. VISIBLE VASCULARITY: 
-   - Are veins visible? YES/NO
-   - If YES, specify EXACTLY where: "biceps veins visible", "forearm vascularity prominent", "deltoid veins showing", "abdominal veins visible", "quad veins visible", etc.
-   - If NO, state "no visible vascularity"
-
-3. MUSCLE STRIATIONS:
-   - Can you see striations? YES/NO
-   - If YES, specify which muscles: "striations visible in deltoids when flexed", "quad striations visible", "chest striations showing", etc.
-   - If NO, state "no visible striations"
-
-4. ABDOMINAL DEFINITION:
-   - How many "packs" are visible? (0, 2, 4, 6, 8)
-   - Describe the definition: "upper abs visible but lower abs not defined", "full six-pack visible with deep separations", "abs barely visible", etc.
-
-5. QUAD ANALYSIS (if legs photo provided):
-   - Quad sweep appearance: "outer quad (vastus lateralis) shows good sweep", "vastus lateralis appears flat/underdeveloped", "quad sweep is minimal"
-   - VMO (teardrop) visibility: "VMO clearly visible above knee", "VMO barely visible", "VMO not visible - underdeveloped"
-   - Overall quad development: "quads appear well-developed with good separation", "quads look flat with minimal definition"
-
-6. PUMP STATE:
-   - Is this a pumped or relaxed state? "appears pumped - muscles look full", "relaxed state - minimal pump", "moderate pump visible"
-
-7. POSE DESCRIPTION:
-   - Describe the exact pose: "front pose with arms relaxed at sides", "side pose facing right", "back pose with arms relaxed", "legs pose showing quads"
-
-PHOTO ANGLES PROVIDED: ${photoDescriptions.join(", ") || "none"}
-VISIBLE MUSCLE GROUPS: ${visibleMuscles.join(", ") || "none"}
-VISIBLE POSTURE CHECKS: ${visiblePostureChecks.join(", ") || "none"}
-
-ATHLETE PROFILE:
-Age: ${profile?.age || "Unknown"}
-Weight: ${profile?.weight || "Unknown"} ${profile?.weightUnit || "lbs"}
-Height: ${profile?.height || "Unknown"} ${profile?.heightUnit || "cm"}
-Goal: ${profile?.goal || "Unknown"}
-Experience: ${profile?.experienceLevel || "Unknown"}
-Cycle Status: ${cycleContext}
-${strengthContext}
-
-Provide the response in JSON only, with this exact structure:
-{
-  "overallRating": 0-100,
-  "overallSummary": "string",
-  "bodyFatEstimate": "string with % range",
-  "bodyFatConfidence": "low|medium|high",
-  "symmetryScore": 0-100,
-  "proportionScore": 0-100,
-  "muscleRatings": [
-    {
-      "muscle": "string",
-      "rating": 1-10,
-      "status": "underdeveloped|average|strong|dominant",
-      "observations": ["string (MUST reference specific visual details like striations, shadowing, or lack of thickness)"],
-      "visualKeywords": ["<3-4 specific clinical/visual markers you see for this muscle (e.g., 'distal quad separation', 'lower lat insertion visibility', 'serratus anterior definition')>"],
-      "priority": "high|medium|low"
-    }
-  ],
-  "weakPoints": ["string"],
-  "strongPoints": ["string"],
-  "postureIssues": [
-    {
-      "issue": "string",
-      "severity": "mild|moderate|severe",
-      "description": "string"
-    }
-  ],
-  "trainingRecommendations": ["string"],
-  "nutritionNotes": ["string"],
-  "priorityExercises": [
-    {
-      "exercise": "string",
-      "sets": number,
-      "reps": "string",
-      "focus": "string"
-    }
-  ],
-  "visualObservations": [
-    "Lighting: <details>",
-    "Vascularity: <details>",
-    "Striations: <details>",
-    "Abdominal definition: <details>",
-    "Quad analysis: <details>",
-    "Pump state: <details>",
-    "Pose description: <details>"
-  ],
-  "cycleImpact": ${profile?.cycleInfo?.compounds?.length > 0 ? `"Your current protocol (${profile.cycleInfo.compounds.map((c: any) => c.name).join(", ")}) affects training: <specific recommendation>"` : "null"},
-  "logicKeywords": ["<MANDATORY: 5-7 specific scientific/clinical keywords used in your logic (e.g., 'androgen receptor density', 'myofibrillar hypertrophy', 'half-life clearance', 'VMO-to-medial-distal ratio', etc.)>"]
-}
-
-RATING SCALE: 1-2=severely underdeveloped, 3-4=lagging, 5-6=average, 7-8=above average/strong, 9-10=exceptional/dominant
-
-**DO NOT GIVE GENERIC SCORES.** If you rate quads as "6/average" but they look flat with no sweep in the photo, you are WRONG. Be HONEST.`;
-
-  let responseData;
-
-  if (hasPhotos) {
-    const imageMessages: any[] = [];
-
-    if (photos.front) {
-      imageMessages.push({
-        type: "image_url",
-        image_url: { url: photos.front, detail: "high" },
-      });
-    }
-    if (photos.side) {
-      imageMessages.push({
-        type: "image_url",
-        image_url: { url: photos.side, detail: "high" },
-      });
-    }
-    if (photos.back) {
-      imageMessages.push({
-        type: "image_url",
-        image_url: { url: photos.back, detail: "high" },
-      });
-    }
-    if (photos.legs) {
-      imageMessages.push({
-        type: "image_url",
-        image_url: { url: photos.legs, detail: "high" },
-      });
-    }
-
-    console.log("Analyzing physique with", imageMessages.length, "images");
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o", // Use GPT-4o for vision capabilities
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a brutally honest physique analyst. ACTUALLY LOOK at the provided photos and describe specific visual details you observe - veins, muscle separation, development levels, weak points. If quads look flat or underdeveloped, SAY SO. If there's no VMO teardrop visible, MENTION IT. Do NOT give generic 'average' scores to muscles that are clearly underdeveloped in the photos. Be HONEST like a real bodybuilding coach would be.",
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: prompt }, ...imageMessages],
-        },
-      ],
-      max_tokens: 3000,
-      response_format: { type: "json_object" },
-    });
-
-    const content = response.choices[0]?.message?.content || "{}";
-    console.log("Physique analysis response received");
-    responseData = JSON.parse(content);
-  } else {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an expert physique analyst providing baseline assessments.",
-        },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 3000,
-      response_format: { type: "json_object" },
-    });
-
-    const content = response.choices[0]?.message?.content || "{}";
-    responseData = JSON.parse(content);
-  }
-
-  const photoCoverage = {
-    front: !!photos?.front,
-    side: !!photos?.side,
-    back: !!photos?.back,
-    legs: !!photos?.legs,
-  };
-  const muscleVisibility: Record<string, boolean> = {
-    chest: photoCoverage.front || photoCoverage.side,
-    back: photoCoverage.back,
-    shoulders: photoCoverage.front || photoCoverage.side || photoCoverage.back,
-    arms: photoCoverage.front || photoCoverage.side || photoCoverage.back,
-    abs: photoCoverage.front,
-    core: photoCoverage.front,
-    quads: photoCoverage.front || photoCoverage.legs,
-    hamstrings: photoCoverage.side || photoCoverage.back || photoCoverage.legs,
-    glutes: photoCoverage.side || photoCoverage.back,
-    calves: photoCoverage.side || photoCoverage.back || photoCoverage.legs,
-    legs:
-      photoCoverage.front ||
-      photoCoverage.side ||
-      photoCoverage.back ||
-      photoCoverage.legs,
-  };
-  const isMuscleVisible = (muscleName: string) => {
-    const key = muscleName.toLowerCase();
-    if (key.includes("chest") || key.includes("pec")) return muscleVisibility.chest;
-    if (
-      key.includes("back") ||
-      key.includes("lat") ||
-      key.includes("trap") ||
-      key.includes("rhomboid")
-    )
-      return muscleVisibility.back;
-    if (key.includes("shoulder") || key.includes("delt"))
-      return muscleVisibility.shoulders;
-    if (
-      key.includes("arm") ||
-      key.includes("bicep") ||
-      key.includes("tricep")
-    )
-      return muscleVisibility.arms;
-    if (key.includes("ab") || key.includes("core")) return muscleVisibility.abs;
-    if (key.includes("quad")) return muscleVisibility.quads;
-    if (key.includes("hamstring")) return muscleVisibility.hamstrings;
-    if (key.includes("glute")) return muscleVisibility.glutes;
-    if (key.includes("calf")) return muscleVisibility.calves;
-    if (key.includes("leg")) return muscleVisibility.legs;
-    return true;
-  };
-
-  responseData.muscleRatings = (responseData.muscleRatings || []).map(
-    (rating: any) => {
-      if (!rating?.muscle) return rating;
-      if (!isMuscleVisible(rating.muscle)) {
-        return {
-          ...rating,
-          rating: 0,
-          status: "not_visible",
-          observations: ["Not visible in uploaded photos"],
-          priority: "low",
-        };
-      }
-      return rating;
-    },
-  );
-
-  const filterPoints = (points: any[]) =>
-    (points || []).filter((point: any) => {
-      if (typeof point !== "string") return true;
-      return isMuscleVisible(point);
-    });
-
-  responseData.weakPoints = filterPoints(responseData.weakPoints);
-  responseData.strongPoints = filterPoints(responseData.strongPoints);
-  responseData.bodyFatConfidence =
-    responseData.bodyFatConfidence ||
-    (Object.values(photoCoverage).filter(Boolean).length >= 3
-      ? "medium"
-      : "low");
-  responseData.photoCoverage = photoCoverage;
-  responseData.createdAt = new Date().toISOString();
-
-  // Sanitize AI response before returning
-  const sanitizedResponse = sanitizeAiResponse(responseData);
-  return sanitizedResponse;
-}
+// Logic moved to services directory
 
 export function registerCoachRoutes(app: Express) {
   // ============================================
@@ -506,7 +124,7 @@ export function registerCoachRoutes(app: Express) {
 CURRENT CYCLE PROTOCOL:
 ${profile.cycleInfo.compounds
           .map(
-            (c: any) =>
+            (c: CycleCompound) =>
               `- ${c.name}: ${c.dosageAmount}${c.dosageUnit} (${c.frequency || "2x/week"}, ${c.administrationMethod || "IM injection"})`,
           )
           .join("\n")}
@@ -539,7 +157,7 @@ PHYSIQUE ANALYSIS:
 ${physiqueAnalysis.muscleRatings?.length > 0
           ? `- Muscle Ratings: ${physiqueAnalysis.muscleRatings
             .slice(0, 6)
-            .map((m: any) => `${m.muscle}: ${m.rating}/10`)
+            .map((m: MuscleRating) => `${m.muscle || m.name}: ${m.rating}/10`)
             .join(", ")}`
           : ""
         }`
@@ -565,21 +183,21 @@ STRENGTH GOALS:
         medicationsList?.length > 0
           ? `
 CURRENT MEDICATIONS:
-${medicationsList.map((med: any) => `- ${med.name}${med.dosage ? ` (${med.dosage})` : ""}${med.frequency ? ` (${med.frequency})` : ""}`).join("\n")}`
+${medicationsList.map((med: MedicationWithDosage) => `- ${med.name}${med.dosage ? ` (${med.dosage})` : ""}${med.frequency ? ` (${med.frequency})` : ""}`).join("\n")}`
           : "";
       const medicationImpactContext = medicationImpacts
         ? `
 MEDICATION IMPACTS:
 - Volume Multiplier: ${medicationImpacts.overallVolumeMultiplier.toFixed(2)}
 - Frequency Multiplier: ${medicationImpacts.overallFrequencyMultiplier.toFixed(2)}
-- Diet Impacts: ${medicationImpacts.dietImpacts.map((impact: any) => `${impact.medication}: ${impact.effects.map((e: any) => e.effect).join("; ")}`).join(" | ")}
-- Training Impacts: ${medicationImpacts.trainingImpacts.map((impact: any) => `${impact.medication}: ${impact.effects.map((e: any) => e.effect).join("; ")}`).join(" | ")}
+- Diet Impacts: ${medicationImpacts.dietImpacts.map((impact: MedicationImpact) => `${impact.medication}: ${impact.effects.map((e: MedicationImpactEffect) => e.effect).join("; ")}`).join(" | ")}
+- Training Impacts: ${medicationImpacts.trainingImpacts.map((impact: MedicationImpact) => `${impact.medication}: ${impact.effects.map((e: MedicationImpactEffect) => e.effect).join("; ")}`).join(" | ")}
 - Critical Notes: ${medicationImpacts.criticalNotes.join(" | ") || "None"}`
         : "";
       const checkInSummary = aiContext.checkIns?.length
         ? `
 RECENT CHECK-INS (last ${aiContext.checkIns.length}):
-${aiContext.checkIns.map((c: any) => `- ${c.date}: sleep ${c.sleepHours}h, stress ${c.stressLevel}/7, soreness ${c.sorenessLevel}/7, weight ${c.weight || "N/A"}`).join("\n")}`
+${aiContext.checkIns.map((c: DailyCheckIn) => `- ${c.date || c.createdAt}: sleep ${c.sleepHours}h, stress ${c.stressLevel}/7, soreness ${c.sorenessLevel}/7, weight ${c.weight || "N/A"}`).join("\n")}`
         : "";
       const memoryContext = profile?.aiMemory
         ? `
@@ -656,16 +274,107 @@ COACHING GUIDELINES:
       console.log("AI response received, length:", aiResponse.length);
 
       res.json({ response: aiResponse });
-    } catch (error: any) {
+    } catch (error) {
       console.error("=== AI CHAT ERROR ===");
-      console.error("Error type:", error?.constructor?.name);
-      console.error("Error message:", error?.message);
+      console.error("Error type:", (error as Error)?.constructor?.name);
+      console.error("Error message:", (error as Error)?.message);
       console.error("Error details:", JSON.stringify(error, null, 2));
       res.status(500).json({
         error: "Failed to process your question. Please try again.",
         details:
           process.env.NODE_ENV === "development" ? error?.message : undefined,
       });
+    }
+  });
+
+  // STREAMING AI Coach Chat - Faster perceived response time
+  app.post("/api/coach/chat/stream", async (req, res) => {
+    try {
+      const {
+        message,
+        profile: incomingProfile,
+        context,
+        conversationHistory,
+        userId,
+        profileId,
+      } = req.body;
+
+      if (!message) {
+        return res.status(400).json({ error: "Message is required" });
+      }
+
+      const aiContext = await buildAiContext({
+        profile: incomingProfile,
+        profileId,
+        userId,
+      });
+      const profile = aiContext.profile || incomingProfile;
+      const program = aiContext.program || context?.program;
+      const macroTargets = aiContext.macroTargets || context?.macros;
+      const physiqueAnalysis = profile?.physiqueAnalysis || context?.physiqueAnalysis;
+
+      const isEnhanced = profile?.cycleInfo?.compounds?.length > 0;
+      const cycleContext = isEnhanced
+        ? `ENHANCED: ${profile.cycleInfo.compounds.map((c: CycleCompound) => `${c.name} ${c.dosageAmount}${c.dosageUnit}`).join(", ")}, Week ${profile.cycleInfo.weeksIn || 1}/${profile.cycleInfo.totalWeeks || 16}`
+        : "Natural lifter";
+
+      const systemPrompt = `You are FitSync AI Coach - an elite expert in hypertrophy, nutrition, and performance.
+ATHLETE: ${profile?.age || "?"}yo ${profile?.sex || "male"}, ${profile?.weight || "?"}${profile?.weightUnit || "lbs"}, ${profile?.goal?.toUpperCase() || "RECOMP"}, ${profile?.experienceLevel || "intermediate"}
+${cycleContext}
+${macroTargets ? `MACROS: ${macroTargets.targetCalories || macroTargets.calories}kcal, ${macroTargets.macros?.protein?.grams || macroTargets.protein}g P` : ""}
+${physiqueAnalysis?.weakPoints?.length ? `WEAK POINTS: ${physiqueAnalysis.weakPoints.slice(0, 3).join(", ")}` : ""}
+
+Be direct, specific (numbers, sets, reps), and personalized. Use markdown for structure.`;
+
+      const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+        { role: "system", content: systemPrompt },
+      ];
+
+      if (conversationHistory?.length) {
+        const recent = conversationHistory.slice(-4);
+        for (const msg of recent) {
+          messages.push({ role: msg.role as "user" | "assistant", content: msg.content });
+        }
+      }
+      messages.push({ role: "user", content: message });
+
+      // Set up SSE headers
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+
+      // Stream the response
+      const stream = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages,
+        temperature: 0.7,
+        max_tokens: 1000,
+        stream: true,
+      });
+
+      let fullResponse = "";
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || "";
+        if (content) {
+          fullResponse += content;
+          res.write(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`);
+        }
+      }
+
+      // Send completion signal
+      res.write(`data: ${JSON.stringify({ type: "done", fullResponse })}\n\n`);
+      res.end();
+    } catch (error) {
+      console.error("Streaming chat error:", (error as Error)?.message);
+      // If headers already sent, close the stream
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: "error", error: (error as Error)?.message })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ error: "Failed to stream response" });
+      }
     }
   });
 
@@ -696,7 +405,7 @@ COACHING GUIDELINES:
 
       const isEnhanced = profile?.cycleInfo?.compounds?.length > 0;
       const cycleContext = isEnhanced
-        ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: any) => `${c.name} ${c.dosageAmount}${c.dosageUnit}`).join(", ")}`
+        ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: CycleCompound) => `${c.name} ${c.dosageAmount}${c.dosageUnit}`).join(", ")}`
         : "Natural lifter";
 
       const medicationsList = profile?.medicationsWithDosage?.length
@@ -704,7 +413,7 @@ COACHING GUIDELINES:
         : (profile?.medications || []).map((name: string) => ({ name }));
       const medicationsContext =
         medicationsList?.length > 0
-          ? `Current medications: ${medicationsList.map((med: any) => med.name || med).join(", ")}`
+          ? `Current medications: ${medicationsList.map((med: MedicationWithDosage) => med.name || med).join(", ")}`
           : "No current medications";
 
       const systemPrompt = `${AI_SYSTEM_CONTEXT}
@@ -766,8 +475,8 @@ At the very end of your response, include a mandatory section:
       console.log("Healthmaxx analysis complete");
 
       res.json({ response: aiResponse });
-    } catch (error: any) {
-      console.error("Healthmaxx error:", error?.message);
+    } catch (error) {
+      console.error("Healthmaxx error:", (error as Error)?.message);
       res.status(500).json({ error: "Failed to analyze health concerns" });
     }
   });
@@ -784,7 +493,7 @@ At the very end of your response, include a mandatory section:
         profile?.cycleInfo?.compounds?.length > 0
           ? `\nCurrent Protocol:\n${profile.cycleInfo.compounds
             .map(
-              (c: any) =>
+              (c: CycleCompound) =>
                 `- ${c.name}: ${c.dosageAmount}${c.dosageUnit} ${c.frequency}`,
             )
             .join(
@@ -862,7 +571,7 @@ Format your response as JSON:
 
   app.post("/api/coach/analyze-physique", async (req, res) => {
     try {
-      const { photos, profile } = req.body;
+      const { photos, profile, userId, profileId } = req.body;
 
       if (
         !photos ||
@@ -873,164 +582,14 @@ Format your response as JSON:
           .json({ error: "At least one physique photo is required" });
       }
 
-      const photoDescriptions = [];
-      if (photos.front) photoDescriptions.push("front pose");
-      if (photos.side) photoDescriptions.push("side pose");
-      if (photos.back) photoDescriptions.push("back pose");
-      if (photos.legs) photoDescriptions.push("legs pose (quad focus)");
-
-      const cycleContext =
-        profile?.cycleInfo?.compounds?.length > 0
-          ? `Enhanced lifter running: ${profile.cycleInfo.compounds.map((c: any) => c.name).join(", ")}`
-          : "Natural lifter";
-
-      const goldenRatioContext = JSON.stringify(
-        GOLDEN_RATIO_PROPORTIONS,
-        null,
-        2,
-      );
-      const anatomyContext = JSON.stringify(MUSCLE_ANATOMY, null, 2);
-      const weakPointStrategies = JSON.stringify(
-        WEAK_POINT_PRIORITIZATION,
-        null,
-        2,
-      );
-
-      const prompt = `${AI_SYSTEM_CONTEXT}
-
-You are an expert physique analyst and bodybuilding coach with deep knowledge of the GOLDEN RATIO proportions used by classic bodybuilders like Steve Reeves.
-
-GOLDEN RATIO PROPORTIONS REFERENCE:
-${goldenRatioContext}
-
-MUSCLE ANATOMY REFERENCE:
-${anatomyContext}
-
-WEAK POINT PRIORITIZATION STRATEGIES:
-${weakPointStrategies}
-
-User Stats:
-- Height: ${profile?.height || "Unknown"} ${profile?.heightUnit || "cm"}
-- Weight: ${profile?.weight || "Unknown"} ${profile?.weightUnit || "lbs"}
-- Age: ${profile?.age || "Unknown"}
-- Sex: ${profile?.sex || "male"}
-- Goal: ${profile?.goal || "recomp"}
-- Experience: ${profile?.experienceLevel || "intermediate"}
-- Status: ${cycleContext}
-
-Photos provided: ${photoDescriptions.join(", ")}
-
-Analyze the physique photos and provide a COMPREHENSIVE assessment:
-
-1. GOLDEN RATIO COMPARISON:
-   - Calculate ideal proportions based on height/weight/sex
-   - Compare current physique to golden ratio standards
-   - Rate overall aesthetic score (1-100)
-   - Identify which ratios are closest to ideal
-   - Identify which ratios need the most work
-
-2. MUSCLE GROUP RATINGS (1-10 each):
-   - Rate each muscle group individually
-   - Provide overall development score
-   - Identify genetic advantages (insertions, shape, response)
-
-3. WEAK POINTS ANALYSIS:
-   - List specific lagging muscles with priority ranking
-   - Recommend exercises targeting each weak point
-   - Include techniques (drop sets, partials, etc.)
-
-4. POSTURE ANALYSIS (if visible):
-   - Check for anterior pelvic tilt
-   - Check for rounded shoulders/kyphosis
-   - Check for scapular winging
-   - Check for rib flare
-
-5. BODY FAT & COMPOSITION:
-   - Estimated body fat percentage
-   - Muscle maturity (1-10)
-   - Vascularity assessment
-   - Frame structure (clavicle width, waist, hip ratio)
-
-6. PERSONALIZED RECOMMENDATIONS:
-   - Training frequency per muscle group
-   - Weekly set recommendations
-   - Priority exercises for weak points
-   - Timeline expectations
-
-Format as JSON:
-{
-  "overallScore": 75,
-  "goldenRatioAnalysis": {
-    "shoulderToWaist": { "current": 1.4, "ideal": 1.618, "deviation": "-13%", "rating": 7 },
-    "chestToWaist": { "current": 1.2, "ideal": 1.4, "deviation": "-14%", "rating": 6 },
-    "armToNeck": { "current": 0.9, "ideal": 1.0, "deviation": "-10%", "rating": 7 }
-  },
-  "proportions": { "chest": 7, "back": 8, "shoulders": 6, "arms": 7, "quads": 7, "hamstrings": 6, "glutes": 6, "calves": 5 },
-  "strongPoints": ["list of genetic advantages"],
-  "weakPoints": [{ "muscle": "shoulders", "priority": 1, "exercises": ["lateral raises", "face pulls"], "techniques": ["drop sets", "partials"] }],
-  "postureIssues": [{ "issue": "anterior pelvic tilt", "severity": "moderate", "fixes": ["hip flexor stretches", "glute bridges"] }],
-  "bodyFat": "14%",
-  "muscleMaturity": 6,
-  "vascularity": "moderate",
-  "frameAnalysis": { "clavicles": "medium", "waist": "narrow", "hips": "medium" },
-  "trainingRecommendations": { "shoulders": { "setsPerWeek": 20, "frequency": 3, "priorityExercises": ["lateral raises"] } },
-  "goalAdvice": "advice based on goal",
-  "timeline": "expected improvements timeline"
-}`;
-
-      const imageMessages: any[] = [];
-
-      if (photos.front) {
-        imageMessages.push({
-          type: "image_url",
-          image_url: { url: photos.front, detail: "high" },
-        });
-      }
-      if (photos.side) {
-        imageMessages.push({
-          type: "image_url",
-          image_url: { url: photos.side, detail: "high" },
-        });
-      }
-      if (photos.back) {
-        imageMessages.push({
-          type: "image_url",
-          image_url: { url: photos.back, detail: "high" },
-        });
-      }
-      if (photos.legs) {
-        imageMessages.push({
-          type: "image_url",
-          image_url: { url: photos.legs, detail: "high" },
-        });
-      }
-
-      console.log(
-        "Analyzing physique with",
-        imageMessages.length,
-        "images (simple analysis)",
-      );
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o", // Use GPT-4o for vision capabilities
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are an expert physique analyst and a n expert bodybuilding shgow judge. Analyze the provided photos and return a detailed JSON assessment breaking down each invididual muscle do not guess truly break down each musckle and return with a score and rating for each muscle groups based off measruements and proproritons from the photos..",
-          },
-          {
-            role: "user",
-            content: [{ type: "text", text: prompt }, ...imageMessages],
-          },
-        ],
-        max_tokens: 2000,
-        response_format: { type: "json_object" },
+      const result = await runPhysiqueAnalysis({
+        photos,
+        profile,
+        userId,
+        profileId,
       });
 
-      const content = response.choices[0]?.message?.content || "{}";
-      console.log("Simple physique analysis response received");
-      res.json(JSON.parse(content));
+      res.json(result);
     } catch (error) {
       console.error("Error in physique analysis:", error);
       res.status(500).json({
@@ -1078,423 +637,14 @@ Format as JSON:
           status: job.status,
         });
       }
-      const aiContext = await buildAiContext({
+      const result = await runPhysiqueAnalysis({
+        photos,
         profile: incomingProfile,
-        profileId,
         userId,
-      });
-      const profile = aiContext.profile || incomingProfile;
-
-      console.log("=== PHYSIQUE ANALYSIS REQUEST ===");
-      console.log("Photos received:", {
-        front: photos?.front
-          ? `${photos.front.substring(0, 50)}... (${photos.front.length} chars)`
-          : "none",
-        side: photos?.side
-          ? `${photos.side.substring(0, 50)}... (${photos.side.length} chars)`
-          : "none",
-        back: photos?.back
-          ? `${photos.back.substring(0, 50)}... (${photos.back.length} chars)`
-          : "none",
-        legs: photos?.legs
-          ? `${photos.legs.substring(0, 50)}... (${photos.legs.length} chars)`
-          : "none",
-      });
-      console.log("Profile stats:", {
-        height: profile?.height,
-        weight: profile?.weight,
-        age: profile?.age,
-        sex: profile?.sex,
-        goal: profile?.goal,
+        profileId: resolvedProfileId,
       });
 
-      const hasPhotos =
-        photos && (photos.front || photos.side || photos.back || photos.legs);
-      if (!hasPhotos) {
-        return res.status(400).json({
-          error: "No photos provided",
-          message:
-            "Upload at least one photo (front, side, back, or legs) for analysis.",
-          retryable: true,
-        });
-      }
-
-      const photoDescriptions = [];
-      if (photos?.front) photoDescriptions.push("front pose");
-      if (photos?.side) photoDescriptions.push("side pose");
-      if (photos?.back) photoDescriptions.push("back pose");
-      if (photos?.legs) photoDescriptions.push("legs pose (quad focus)");
-
-      const cycleContext =
-        profile?.cycleInfo?.compounds?.length > 0
-          ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: any) => `${c.name} ${c.dosageAmount}${c.dosageUnit}`).join(", ")}`
-          : "Natural lifter";
-
-      const strengthContext = profile?.strengthGoals
-        ? `
-Current Lifts:
-- Bench: ${profile.strengthGoals.bench?.current || 0} lbs (target: ${profile.strengthGoals.bench?.target || 0} lbs)
-- Squat: ${profile.strengthGoals.squat?.current || 0} lbs (target: ${profile.strengthGoals.squat?.target || 0} lbs)
-- Deadlift: ${profile.strengthGoals.deadlift?.current || 0} lbs (target: ${profile.strengthGoals.deadlift?.target || 0} lbs)
-- OHP: ${profile.strengthGoals.ohp?.current || 0} lbs (target: ${profile.strengthGoals.ohp?.target || 0} lbs)
-- Pull-ups: ${profile.strengthGoals.pullups?.current || 0} reps (target: ${profile.strengthGoals.pullups?.target || 0} reps)`
-        : "";
-
-      // Determine which muscles are visible based on photo angles
-      const visibleMuscles: string[] = [];
-      const visiblePostureChecks: string[] = [];
-
-      if (photos?.front) {
-        visibleMuscles.push(
-          "Chest (Pectorals)",
-          "Shoulders (Front Deltoids)",
-          "Arms (Biceps visible, Triceps partial)",
-          "Core (Abs & Obliques)",
-          "Quadriceps (front view)",
-        );
-        visiblePostureChecks.push(
-          "shoulder symmetry",
-          "rib flare",
-          "hip alignment",
-          "quad symmetry",
-        );
-      }
-      if (photos?.side) {
-        visibleMuscles.push(
-          "Shoulders (Side Deltoids)",
-          "Arms (Triceps profile)",
-          "Glutes (side profile)",
-          "Hamstrings (side view)",
-          "Calves (side view)",
-        );
-        visiblePostureChecks.push(
-          "anterior pelvic tilt",
-          "kyphosis/rounded upper back",
-          "forward head posture",
-          "knee hyperextension",
-        );
-      }
-      if (photos?.back) {
-        visibleMuscles.push(
-          "Back (Lats, Traps, Rhomboids)",
-          "Shoulders (Rear Deltoids)",
-          "Glutes (back view)",
-          "Hamstrings (back view)",
-          "Calves (back view)",
-        );
-        visiblePostureChecks.push(
-          "scapular winging",
-          "spinal alignment",
-          "hip height symmetry",
-          "lat width symmetry",
-        );
-      }
-      if (photos?.legs) {
-        visibleMuscles.push(
-          "Quadriceps (detailed - vastus lateralis, rectus femoris, vastus medialis)",
-          "Hamstrings (front view partial)",
-          "Calves (gastrocnemius, soleus)",
-          "Adductors",
-        );
-        visiblePostureChecks.push(
-          "quad sweep development",
-          "VMO development",
-          "calf symmetry",
-          "knee valgus",
-        );
-      }
-
-      const prompt = `${AI_SYSTEM_CONTEXT}
-
-You are an expert physique analyst performing REAL VISUAL ANALYSIS of these photos. This is NOT a generic assessment.
-
-**CRITICAL: YOU MUST ACTUALLY LOOK AT THE PHOTOS AND DESCRIBE SPECIFIC VISUAL DETAILS**
-
-**MANDATORY VISUAL DESCRIPTION REQUIREMENTS - YOU MUST INCLUDE ALL OF THESE:**
-
-1. LIGHTING CONDITIONS: Describe the lighting (harsh gym lighting, natural window light, dim, shadows present, etc.)
-
-2. VISIBLE VASCULARITY: 
-   - Are veins visible? YES/NO
-   - If YES, specify EXACTLY where: "biceps veins visible", "forearm vascularity prominent", "deltoid veins showing", "abdominal veins visible", "quad veins visible", etc.
-   - If NO, state "no visible vascularity"
-
-3. MUSCLE STRIATIONS:
-   - Can you see striations? YES/NO
-   - If YES, specify which muscles: "striations visible in deltoids when flexed", "quad striations visible", "chest striations showing", etc.
-   - If NO, state "no visible striations"
-
-4. ABDOMINAL DEFINITION:
-   - How many "packs" are visible? (0, 2, 4, 6, 8)
-   - Describe the definition: "upper abs visible but lower abs not defined", "full six-pack visible with deep separations", "abs barely visible", etc.
-
-5. QUAD ANALYSIS (if legs photo provided):
-   - Quad sweep appearance: "outer quad (vastus lateralis) shows good sweep", "vastus lateralis appears flat/underdeveloped", "quad sweep is minimal"
-   - VMO (teardrop) visibility: "VMO clearly visible above knee", "VMO barely visible", "VMO not visible - underdeveloped"
-   - Overall quad development: "quads appear well-developed with good separation", "quads look flat with minimal definition"
-
-6. PUMP STATE:
-   - Is this a pumped or relaxed state? "appears pumped - muscles look full", "relaxed state - minimal pump", "moderate pump visible"
-
-7. POSE DESCRIPTION:
-   - Describe the exact pose: "front pose with arms relaxed at sides", "side pose facing right", "back pose with arms relaxed", "legs pose showing quads"
-
-PHOTO ANGLES PROVIDED: ${photoDescriptions.join(", ") || "none"}
-VISIBLE MUSCLE GROUPS: ${visibleMuscles.join(", ") || "none"}
-VISIBLE POSTURE CHECKS: ${visiblePostureChecks.join(", ") || "none"}
-
-SCORING RULES:
-- ONLY score muscles that are clearly visible in the provided photos.
-- If a muscle group is NOT visible, set its rating to 0 and status to "not_visible".
-- For not_visible muscles, observations must include "Not visible in uploaded photos".
-
-User Stats:
-- Height: ${profile?.height || "Unknown"} ${profile?.heightUnit || "cm"}
-- Weight: ${profile?.weight || "Unknown"} ${profile?.weightUnit || "lbs"}  
-- Age: ${profile?.age || "Unknown"}
-- Sex: ${profile?.sex || "male"}
-- Goal: ${profile?.goal || "recomp"}
-- Experience: ${profile?.experienceLevel || "intermediate"}
-- Status: ${cycleContext}
-${strengthContext}
-
-**OBSERVATION REQUIREMENTS FOR EACH MUSCLE:**
-Your observations for EACH muscle MUST include SPECIFIC visual details that you actually see. Use phrases like:
-- "I can see visible separation between [muscle heads] - specifically the [upper/lower] portion shows clear definition"
-- "The [muscle] appears flat/underdeveloped - minimal thickness and no visible striations"
-- "There is noticeable vascularity running across the [muscle] - veins visible in [specific location]"
-- "The [muscle] lacks sweep/width - the outer portion appears underdeveloped compared to the inner portion"
-- "The teardrop (VMO) is [clearly visible/barely visible/not visible] - [describe what you see]"
-- "Striations visible when [contracted/relaxed] - specifically in the [muscle portion]"
-- "Asymmetry observed: left [muscle] appears [larger/smaller] than right - approximately [X]% difference visible"
-- "The [muscle] lacks the rounded/capped appearance - appears flat rather than full"
-
-**VALIDATION CHECK:** If your response does NOT include specific visual descriptions (veins, striations, VMO, lighting, etc.), it will be rejected. Generic statements like "muscle looks good" or "average development" are NOT acceptable without specific visual evidence.
-
-**HONEST ASSESSMENT REQUIREMENTS:**
-- If quads look flat/small with no sweep → rating should be 3-5, NOT 6-7
-- If there's no visible VMO (teardrop) → mention this as a weakness
-- If arms are disproportionately small compared to torso → rate them lower
-- If there's a noticeable weak point → call it out specifically, don't be diplomatic
-- Average gym-goer physique = rating 4-5, not 6-7
-- Only rate 7+ if the muscle genuinely stands out as well-developed
-
-BODY FAT ESTIMATION (use visual markers you ACTUALLY observe):
-- 8-10%: Visible abs with deep separations, vascularity in arms/delts/abs, striations visible
-- 10-12%: Full six-pack visible, some vascularity, clear muscle separation
-- 12-15%: Upper abs visible, lower abs fading, some definition
-- 15-18%: Abs barely visible or not visible, smooth appearance
-- 18-22%: No ab definition, noticeable fat around waist
-- 22%+: Significant fat accumulation
-
-Return JSON:
-{
-  "photoAnalysis": {
-    "whatISee": "<MANDATORY: Describe 3-4 sentences with SPECIFIC visual details - lighting conditions, pose, visible veins (where), striations (which muscles), ab definition (how many packs), quad sweep/VMO (if legs visible), pump state>",
-    "vascularity": "<MANDATORY: none/minimal/moderate/prominent - MUST specify WHERE: 'biceps veins visible', 'forearm vascularity', 'deltoid veins', 'abdominal veins', 'quad veins', or 'no visible vascularity'>",
-    "absVisibility": "<MANDATORY: Describe exactly what you see - 'full six-pack visible with deep separations', 'upper 4 abs visible but lower abs not defined', 'abs barely visible', 'no ab definition visible'>",
-    "overallImpression": "<One sentence honest impression based on SPECIFIC visual observations. AT LEAST 3 terms from your logicKeywords list MUST be referenced here to prove the scan was successful.>"
-  },
-  "overallScore": <1-100 - average gym-goer is 40-55, trained lifter 55-70, advanced 70-85, competitive 85+>,
-  "goldenRatioScore": <1-100 based on shoulder-to-waist ratio you OBSERVE>,
-  "symmetryScore": <1-100 for left-right balance you OBSERVE>,
-  "bodyFatEstimate": "<X-Y%> based on visual markers you DESCRIBED",
-  "bodyFatConfidence": "<low|medium|high>",
-  "muscleRatings": [
-    {
-      "muscle": "<Muscle Name>",
-      "rating": <1-10 - be HONEST, 5 is average, most muscles should be 4-6 unless exceptional>,
-      "status": "<lagging|average|strong|dominant|not_visible>",
-      "observations": ["<SPECIFIC visual detail you observed in the photo>", "<Another SPECIFIC detail>"],
-      "visualKeywords": ["<3-4 specific clinical/visual markers you see for this muscle (e.g., 'distal quad separation', 'lower lat insertion visibility', 'serratus anterior definition')>"],
-      "priority": "<high|medium|low>"
-    }
-  ],
-  "postureIssues": [
-    {
-      "issue": "<Issue Name>",
-      "severity": <1-10>,
-      "status": "<good|mild|moderate|severe>",
-      "observations": ["<What you SPECIFICALLY see in the photo>"],
-      "corrections": ["<Exercise 1>", "<Exercise 2>"]
-    }
-  ],
-  "weakPoints": ["<Your #1 lagging body part based on what you SEE>", "<#2 weak point>"],
-  "strongPoints": ["<Body part that stands out as well-developed based on photos>"],
-  "observations": ["<Personalized insight referencing ACTUAL photo details>"],
-  "honestAdvice": "<One sentence of brutally honest advice based on what you observed>",
-  "cycleImpact": ${profile?.cycleInfo?.compounds?.length > 0 ? `"Your current protocol (${profile.cycleInfo.compounds.map((c: any) => c.name).join(", ")}) affects training: <specific recommendation>"` : "null"},
-  "logicKeywords": ["<MANDATORY: 5-7 specific scientific/clinical keywords used in your logic (e.g., 'androgen receptor density', 'myofibrillar hypertrophy', 'half-life clearance', 'VMO-to-medial-distal ratio', etc.)>"]
-}
-
-RATING SCALE: 1-2=severely underdeveloped, 3-4=lagging, 5-6=average, 7-8=above average/strong, 9-10=exceptional/dominant
-
-**DO NOT GIVE GENERIC SCORES.** If you rate quads as "6/average" but they look flat with no sweep in the photo, you are WRONG. Be HONEST.`;
-
-      let responseData;
-
-      if (hasPhotos) {
-        const imageMessages: any[] = [];
-
-        if (photos.front) {
-          imageMessages.push({
-            type: "image_url",
-            image_url: { url: photos.front, detail: "high" },
-          });
-        }
-        if (photos.side) {
-          imageMessages.push({
-            type: "image_url",
-            image_url: { url: photos.side, detail: "high" },
-          });
-        }
-        if (photos.back) {
-          imageMessages.push({
-            type: "image_url",
-            image_url: { url: photos.back, detail: "high" },
-          });
-        }
-        if (photos.legs) {
-          imageMessages.push({
-            type: "image_url",
-            image_url: { url: photos.legs, detail: "high" },
-          });
-        }
-
-        console.log("Analyzing physique with", imageMessages.length, "images");
-
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o", // Use GPT-4o for vision capabilities
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a brutally honest physique analyst. ACTUALLY LOOK at the provided photos and describe specific visual details you observe - veins, muscle separation, development levels, weak points. If quads look flat or underdeveloped, SAY SO. If there's no VMO teardrop visible, MENTION IT. Do NOT give generic 'average' scores to muscles that are clearly underdeveloped in the photos. Be HONEST like a real bodybuilding coach would be.",
-            },
-            {
-              role: "user",
-              content: [{ type: "text", text: prompt }, ...imageMessages],
-            },
-          ],
-          max_tokens: 3000,
-          response_format: { type: "json_object" },
-        });
-
-        const content = response.choices[0]?.message?.content || "{}";
-        console.log("Physique analysis response received");
-        responseData = JSON.parse(content);
-      } else {
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are an expert physique analyst providing baseline assessments.",
-            },
-            { role: "user", content: prompt },
-          ],
-          max_tokens: 3000,
-          response_format: { type: "json_object" },
-        });
-
-        const content = response.choices[0]?.message?.content || "{}";
-        responseData = JSON.parse(content);
-      }
-
-      const photoCoverage = {
-        front: !!photos?.front,
-        side: !!photos?.side,
-        back: !!photos?.back,
-        legs: !!photos?.legs,
-      };
-      const muscleVisibility: Record<string, boolean> = {
-        chest: photoCoverage.front || photoCoverage.side,
-        back: photoCoverage.back,
-        shoulders:
-          photoCoverage.front || photoCoverage.side || photoCoverage.back,
-        arms: photoCoverage.front || photoCoverage.side || photoCoverage.back,
-        abs: photoCoverage.front,
-        core: photoCoverage.front,
-        quads: photoCoverage.front || photoCoverage.legs,
-        hamstrings:
-          photoCoverage.side || photoCoverage.back || photoCoverage.legs,
-        glutes: photoCoverage.side || photoCoverage.back,
-        calves: photoCoverage.side || photoCoverage.back || photoCoverage.legs,
-        legs:
-          photoCoverage.front ||
-          photoCoverage.side ||
-          photoCoverage.back ||
-          photoCoverage.legs,
-      };
-      const isMuscleVisible = (muscleName: string) => {
-        const key = muscleName.toLowerCase();
-        if (key.includes("chest") || key.includes("pec"))
-          return muscleVisibility.chest;
-        if (
-          key.includes("back") ||
-          key.includes("lat") ||
-          key.includes("trap") ||
-          key.includes("rhomboid")
-        )
-          return muscleVisibility.back;
-        if (key.includes("shoulder") || key.includes("delt"))
-          return muscleVisibility.shoulders;
-        if (
-          key.includes("arm") ||
-          key.includes("bicep") ||
-          key.includes("tricep")
-        )
-          return muscleVisibility.arms;
-        if (
-          key.includes("ab") ||
-          key.includes("core") ||
-          key.includes("oblique")
-        )
-          return muscleVisibility.core;
-        if (key.includes("quad") || key.includes("adductor"))
-          return muscleVisibility.quads;
-        if (key.includes("hamstring")) return muscleVisibility.hamstrings;
-        if (key.includes("glute")) return muscleVisibility.glutes;
-        if (key.includes("calf")) return muscleVisibility.calves;
-        if (key.includes("leg")) return muscleVisibility.legs;
-        return true;
-      };
-
-      responseData.muscleRatings = (responseData.muscleRatings || []).map(
-        (rating: any) => {
-          if (!rating?.muscle) return rating;
-          if (!isMuscleVisible(rating.muscle)) {
-            return {
-              ...rating,
-              rating: 0,
-              status: "not_visible",
-              observations: ["Not visible in uploaded photos"],
-              priority: "low",
-            };
-          }
-          return rating;
-        },
-      );
-
-      const filterPoints = (points: any[]) =>
-        (points || []).filter((point: any) => {
-          if (typeof point !== "string") return true;
-          return isMuscleVisible(point);
-        });
-
-      responseData.weakPoints = filterPoints(responseData.weakPoints);
-      responseData.strongPoints = filterPoints(responseData.strongPoints);
-      responseData.bodyFatConfidence =
-        responseData.bodyFatConfidence ||
-        (Object.values(photoCoverage).filter(Boolean).length >= 3
-          ? "medium"
-          : "low");
-      responseData.photoCoverage = photoCoverage;
-
-      // Sanitize AI response before sending
-      const sanitizedResponse = sanitizeAiResponse(responseData);
-      res.json(sanitizedResponse);
+      res.json(result);
     } catch (error) {
       console.error("Error in detailed physique analysis:", error);
       res.status(500).json({
@@ -1539,582 +689,29 @@ RATING SCALE: 1-2=severely underdeveloped, 3-4=lagging, 5-6=average, 7-8=above a
   app.post("/api/coach/generate-program", async (req, res) => {
     try {
       const {
-        profile: incomingProfile,
-        physiqueAnalysis: incomingPhysique,
+        profile,
+        physiqueAnalysis,
         daysPerWeek,
-        compoundResearch: incomingCompoundResearch,
+        compoundResearch,
         splitType,
         userId,
         profileId,
       } = req.body;
-      const aiContext = await buildAiContext({
-        profile: incomingProfile,
-        profileId,
+
+      const program = await generateProgram({
+        profile,
+        physiqueAnalysis,
+        daysPerWeek,
+        compoundResearch,
+        splitType,
         userId,
+        profileId
       });
-      const profile = aiContext.profile || incomingProfile;
-      const macroTargets = aiContext.macroTargets || profile?.calculatedMacros;
-      const physiqueAnalysis = profile?.physiqueAnalysis || incomingPhysique;
-      const compoundResearch =
-        profile?.compoundResearch || incomingCompoundResearch;
-
-      // Debug logging to verify data received
-      console.log("=== PROGRAM GENERATION REQUEST ===");
-      console.log(
-        "Profile received:",
-        JSON.stringify(
-          {
-            weight: profile?.weight,
-            weightUnit: profile?.weightUnit,
-            height: profile?.height,
-            heightUnit: profile?.heightUnit,
-            age: profile?.age,
-            sex: profile?.sex,
-            goal: profile?.goal,
-            experienceLevel: profile?.experienceLevel,
-            isOnCycle: profile?.isOnCycle,
-            cycleCompounds: profile?.cycleInfo?.compounds?.length || 0,
-          },
-          null,
-          2,
-        ),
-      );
-
-      // CRITICAL: Validate required profile fields - DO NOT use defaults
-      const requiredFields = [
-        "weight",
-        "height",
-        "age",
-        "sex",
-        "experienceLevel",
-        "goal",
-      ];
-      const missingFields = requiredFields.filter((field) => !profile?.[field]);
-
-      if (missingFields.length > 0) {
-        console.error(
-          "MISSING REQUIRED PROFILE FIELDS FOR PROGRAM:",
-          missingFields,
-        );
-        return res.status(400).json({
-          error: "Missing required profile data",
-          missingFields,
-          message: "Please complete your profile before generating a program.",
-        });
-      }
-
-      // Validate values are reasonable
-      if (profile.weight <= 0 || profile.weight > 500) {
-        return res
-          .status(400)
-          .json({ error: "Invalid weight value. Please update your profile." });
-      }
-      if (profile.height <= 0 || profile.height > 300) {
-        return res
-          .status(400)
-          .json({ error: "Invalid height value. Please update your profile." });
-      }
-      if (profile.age <= 0 || profile.age > 120) {
-        return res
-          .status(400)
-          .json({ error: "Invalid age value. Please update your profile." });
-      }
-
-      console.log("VALIDATED - Using actual user data for program generation");
-
-      const days = daysPerWeek ?? profile?.trainingProgram?.daysPerWeek;
-      const selectedSplit = splitType ?? profile?.trainingProgram?.templateName;
-      if (!days || !selectedSplit) {
-        return res.status(400).json({
-          error: "Missing training program setup",
-          message:
-            "Please select your training days per week and split type before generating a program.",
-        });
-      }
-
-      const SPLIT_TEMPLATES: Record<
-        string,
-        { name: string; structure: string }
-      > = {
-        ppl: {
-          name: "Push Pull Legs",
-          structure: `Day 1: Push (Chest, Shoulders, Triceps)
-Day 2: Pull (Back, Biceps, Rear Delts)
-Day 3: Legs (Quads, Hamstrings, Glutes, Calves)
-Day 4: Push (Chest, Shoulders, Triceps)
-Day 5: Pull (Back, Biceps, Rear Delts)
-Day 6: Legs (Quads, Hamstrings, Glutes, Calves)`,
-        },
-        "upper-lower": {
-          name: "Upper/Lower Split",
-          structure: `Day 1: Upper (Chest, Back, Shoulders, Arms)
-Day 2: Lower (Quads, Hamstrings, Glutes, Calves)
-Day 3: Upper (Chest, Back, Shoulders, Arms)
-Day 4: Lower (Quads, Hamstrings, Glutes, Calves)`,
-        },
-        "bro-split": {
-          name: "Bro Split",
-          structure: `Day 1: Chest
-Day 2: Back
-Day 3: Shoulders
-Day 4: Arms (Biceps, Triceps)
-Day 5: Legs (Quads, Hamstrings, Glutes, Calves)`,
-        },
-        "full-body": {
-          name: "Full Body",
-          structure: `Day 1: Full Body A (Compound focus)
-Day 2: Full Body B (Hypertrophy focus)
-Day 3: Full Body C (Weak point focus)`,
-        },
-        arnold: {
-          name: "Arnold Split",
-          structure: `Day 1: Chest + Back
-Day 2: Shoulders + Arms
-Day 3: Legs
-Day 4: Chest + Back
-Day 5: Shoulders + Arms
-Day 6: Legs`,
-        },
-      };
-
-      const selectedTemplate =
-        SPLIT_TEMPLATES[selectedSplit] || SPLIT_TEMPLATES["ppl"];
-      const isEnhanced = profile?.cycleInfo?.compounds?.length > 0;
-      const experienceLevel = profile?.experienceLevel;
-      const goal = profile?.goal;
-      const age = profile?.age;
-      const weight = profile?.weight;
-      const weightUnit = profile?.weightUnit || "lbs";
-      const sex = profile?.sex;
-      const macroContext = macroTargets
-        ? `
-CURRENT MACROS:
-- Calories: ${macroTargets.calories || macroTargets.targetCalories} kcal
-- Protein: ${macroTargets.protein || macroTargets?.macros?.protein?.grams}g
-- Carbs: ${macroTargets.carbs || macroTargets?.macros?.carbs?.grams}g
-- Fat: ${macroTargets.fat || macroTargets?.macros?.fat?.grams}g`
-        : "";
-
-      // Calculate user-specific volume guidelines based on stats
-      const weightLbs = weightUnit === "kg" ? weight * 2.20462 : weight;
-
-      // Base sets per muscle group per week - varies by experience and enhancement status
-      let baseSetsPerMuscle: number;
-      if (experienceLevel === "beginner") {
-        baseSetsPerMuscle = isEnhanced ? 12 : 8;
-      } else if (experienceLevel === "intermediate") {
-        baseSetsPerMuscle = isEnhanced ? 18 : 14;
-      } else {
-        // advanced
-        baseSetsPerMuscle = isEnhanced ? 24 : 18;
-      }
-
-      // Adjust for age (recovery decreases with age)
-      if (age > 40) baseSetsPerMuscle = Math.round(baseSetsPerMuscle * 0.85);
-      if (age > 50) baseSetsPerMuscle = Math.round(baseSetsPerMuscle * 0.75);
-
-      // Rep range recommendations based on goal
-      let primaryRepRange: string;
-      let intensityGuidance: string;
-      switch (goal) {
-        case "cut":
-          primaryRepRange =
-            "8-15 reps (preserve strength with moderate volume)";
-          intensityGuidance =
-            "Focus on maintaining strength while in deficit. Limit drop sets (fatiguing).";
-          break;
-        case "bulk":
-          primaryRepRange = "6-12 reps (heavy compounds, moderate isolation)";
-          intensityGuidance =
-            "Push intensity on compounds. Use drop sets and myo-reps for hypertrophy.";
-          break;
-        case "strength":
-          primaryRepRange = "3-6 reps for compounds, 8-12 for accessories";
-          intensityGuidance =
-            "Prioritize progressive overload on main lifts. Longer rest periods (3-5 min).";
-          break;
-        default: // recomp
-          primaryRepRange = "6-12 reps (balance of strength and hypertrophy)";
-          intensityGuidance =
-            "Mix of heavy and moderate work. Some metabolic finishers.";
-      }
-
-      console.log(
-        `Volume calculation: ${baseSetsPerMuscle} sets/muscle, Rep range: ${primaryRepRange}`,
-      );
-
-      const cycleContext = isEnhanced
-        ? `
-ENHANCED ATHLETE STATUS: YES
-Current Cycle Protocol:
-${profile.cycleInfo.compounds
-          .map(
-            (c: any) =>
-              `- ${c.name}: ${c.dosageAmount}${c.dosageUnit} (${c.frequency}, ${c.administrationMethod})`,
-          )
-          .join("\n")}
-Cycle Week: ${profile.cycleInfo.weeksIn}/${profile.cycleInfo.totalWeeks}
-
-ENHANCED TRAINING IMPLICATIONS:
-- Recovery is 40-60% faster than natural
-- Can handle 30-50% more weekly volume per muscle group
-- Higher training frequency is productive (each muscle 2-3x/week vs 1-2x)
-- Can train closer to failure more often (RIR 0-1)
-- Benefits from higher intensity techniques: drop sets, rest-pause, forced reps
-- Muscle protein synthesis elevated for longer (36-48 hours vs 24-36 hours)
-- Joint recovery may lag behind muscle recovery - include prehab work`
-        : `
-NATURAL ATHLETE STATUS: YES (Not Enhanced)
-
-NATURAL TRAINING IMPLICATIONS:
-- Standard recovery timeline (48-72 hours per muscle group)
-- Volume should stay within evidence-based limits (10-20 sets/muscle/week)
-- Training closer to failure is MORE important (each set must count)
-- RIR 1-2 is optimal - going to 0 RIR increases fatigue without proportional benefit
-- Frequency of 2x/week per muscle is usually optimal
-- Progressive overload in weight/reps is THE primary driver
-- Avoid excessive intensity techniques that create systemic fatigue`;
-
-      const weakPointContext =
-        physiqueAnalysis?.weakPoints?.length > 0
-          ? `
-PRIORITY WEAK POINTS (Give 30-50% more volume):
-${physiqueAnalysis.weakPoints.map((wp: string) => `- ${wp} → PRIORITIZE with 2-3 extra weekly sets and specialized exercise selection`).join("\n")}`
-          : "";
-
-      const proportionEntries = physiqueAnalysis?.proportions
-        ? Object.entries(physiqueAnalysis.proportions)
-        : (physiqueAnalysis?.muscleRatings || []).map((rating: any) => [
-          rating.muscle,
-          rating.rating,
-        ]);
-      const proportionContext = proportionEntries?.length
-        ? `
-MUSCLE DEVELOPMENT SCORES (1-10 scale):
-${proportionEntries
-          .map(([muscle, score]: [string, unknown]) => {
-            const scoreNum =
-              typeof score === "number" ? score : parseFloat(String(score));
-            const priority =
-              scoreNum <= 4
-                ? "CRITICAL PRIORITY"
-                : scoreNum <= 6
-                  ? "Moderate Priority"
-                  : "Maintenance";
-            return `- ${muscle}: ${score}/10 [${priority}]`;
-          })
-          .join("\n")}`
-        : "";
-
-      const strengthContext = profile?.strengthGoals
-        ? `
-CURRENT STRENGTH LEVELS & TARGETS:
-${Object.entries(profile.strengthGoals)
-          .map(
-            ([lift, data]: [string, any]) =>
-              `- ${lift.toUpperCase()}: Current ${data.current} ${lift === "pullups" ? "reps" : "lbs"} → Target ${data.target} ${lift === "pullups" ? "reps" : "lbs"} (${Math.round((data.current / data.target) * 100)}% progress)`,
-          )
-          .join("\n")}
-
-STRENGTH-FOCUSED PROGRAMMING REQUIREMENTS:
-Based on these strength goals, the program should:
-- Include primary compound movements (bench, squat, deadlift, OHP) at optimal rep ranges for strength (3-6 reps)
-- Progress towards the specified targets through periodized loading
-- Prioritize exercises that transfer to the main lifts
-- For lifts furthest from targets, add accessory work addressing weak points`
-        : "";
-
-      const postureContext = physiqueAnalysis?.postureIssues?.length
-        ? `
-POSTURE FLAGS (address with warmups/correctives):
-${physiqueAnalysis.postureIssues.map((issue: any) => `- ${issue.issue}: ${issue.status || issue.severity}`).join("\n")}`
-        : "";
-
-      const medicationsList = profile?.medicationsWithDosage?.length
-        ? profile.medicationsWithDosage
-        : (profile?.medications || []).map((name: string) => ({ name }));
-      const medicationImpacts = medicationsList?.length
-        ? getMedicationImpacts(medicationsList)
-        : null;
-      const medicationContext = medicationImpacts
-        ? `
-MEDICATION IMPACTS (modify volume/intensity accordingly):
-- Volume multiplier: ${medicationImpacts.overallVolumeMultiplier.toFixed(2)}
-- Frequency multiplier: ${medicationImpacts.overallFrequencyMultiplier.toFixed(2)}
-- Training impacts: ${medicationImpacts.trainingImpacts.map((impact: any) => `${impact.medication}: ${impact.effects.map((e: any) => e.effect).join("; ")}`).join(" | ")}
-- Critical notes: ${medicationImpacts.criticalNotes.join(" | ") || "None"}`
-        : "";
-
-      const compoundContext = compoundResearch
-        ? `
-COMPOUND-SPECIFIC TRAINING ADJUSTMENTS:
-${Object.entries(compoundResearch)
-          .map(
-            ([name, research]: [string, any]) =>
-              `${name}:
-  - Volume multiplier: ${research.trainingAdjustments?.volumeMultiplier || 1}x
-  - Frequency boost: ${research.trainingAdjustments?.frequencyMultiplier || 1}x
-  - Notes: ${research.trainingAdjustments?.notes?.join("; ") || "Standard adjustments"}`,
-          )
-          .join("\n")}`
-        : "";
-
-      const evidenceBasedGuidelines = isEnhanced
-        ? `
-===== EVIDENCE-BASED GUIDELINES (ENHANCED ATHLETE) =====
-Based on current sports science research for enhanced athletes:
-
-VOLUME LANDMARKS (Israetel et al.):
-- Minimum Effective Volume: 10 sets/muscle/week
-- Maximum Adaptive Volume: 25-30 sets/muscle/week  
-- Maximum Recoverable Volume: 35+ sets/muscle/week (can handle more due to enhanced recovery)
-
-FREQUENCY:
-- Can train each muscle 2-4x per week effectively
-- Enhanced recovery allows higher frequency than natural
-- MPS elevation extends to 36-48 hours (vs 24-36 natural)
-
-INTENSITY:
-- Can tolerate more sets to failure (0 RIR)
-- Drop sets, rest-pause, myo-reps are highly effective
-- Can recover from more intensity techniques per session
-
-KEY RESEARCH:
-- Schoenfeld et al. (2017): Higher volume = more hypertrophy up to ~20 sets/week for naturals
-- Enhanced athletes benefit from even higher volumes (Bhasin et al., 1996)
-- Nutrient partitioning improvements allow more aggressive training
-`
-        : `
-===== EVIDENCE-BASED GUIDELINES (NATURAL ATHLETE) =====
-Based on current sports science research for natural athletes:
-
-VOLUME LANDMARKS (Israetel et al.):
-- Minimum Effective Volume: 8 sets/muscle/week
-- Maximum Adaptive Volume: 16-20 sets/muscle/week
-- Maximum Recoverable Volume: 20-25 sets/muscle/week (individual variation)
-
-FREQUENCY:
-- Train each muscle 2x per week for optimal protein synthesis stimulation
-- MPS elevation lasts 24-36 hours - training more frequently can be beneficial
-- Allow 48-72 hours between training same muscle group
-
-INTENSITY:
-- RIR 1-3 for most sets (training to failure is not necessary for every set)
-- Limit failure training to last set of an exercise
-- Use intensity techniques sparingly (1-2 per workout)
-
-KEY RESEARCH:
-- Schoenfeld et al. (2017): Meta-analysis shows dose-response up to ~20 sets/week
-- Wernbom et al. (2007): Optimal loading for hypertrophy
-- Helms et al. (2015): Natural bodybuilding recommendations
-`;
-
-      const prompt = `You are an ELITE hypertrophy coach creating a TRULY INDIVIDUALIZED training program.
-
-${JSON.stringify(HYPERTROPHY_SCIENCE, null, 2)}
-${evidenceBasedGuidelines}
-
-===== SELECTED TRAINING SPLIT =====
-USER SELECTED: ${selectedTemplate.name} (${days} days/week)
-
-REQUIRED SPLIT STRUCTURE - YOU MUST FOLLOW THIS EXACTLY:
-${selectedTemplate.structure}
-
-IMPORTANT: The user specifically chose this split. DO NOT change it to a different split type.
-
-===== CRITICAL INSTRUCTION =====
-DO NOT USE GENERIC SET/REP SCHEMES! The following patterns are FORBIDDEN unless specifically justified:
-- 4x12 (generic hypertrophy)
-- 3x15 (generic endurance)
-- 3x10 (generic moderate)
-- 4x10 (generic moderate)
-- 3x8 (generic strength)
-
-INSTEAD, prescribe VARIED, EXERCISE-SPECIFIC schemes based on:
-1. Exercise position in workout (compounds early = lower reps, isolations later = higher reps)
-2. Muscle fiber composition (legs tolerate higher reps, bis/tris respond to moderate)
-3. Movement pattern (stretches respond to lower RIR, contractions can go to failure)
-4. Individual weak points (priority muscles get specialized techniques)
-5. Recovery status (enhanced vs natural determines intensity)
-
-EXAMPLES OF PROPER INDIVIDUALIZATION:
-- NOT: "Lat Pulldown 3x12" → YES: "Lat Pulldown 2x8-10 + 1x15-20 (2 heavy sets then 1 pump set)"
-- NOT: "Bicep Curl 4x12" → YES: "Bicep Curl 3x10-12 RIR 1 with 2-sec squeeze at top"
-- NOT: "Leg Press 4x10" → YES: "Leg Press 2x6-8 + 2x15-20 (heavy strength + metabolic stress)"
-
-FOR WEAK POINTS, include advanced techniques like:
-- Myo-reps (activation set + mini sets)
-- Drop sets (for pump and metabolic stress)
-- Rest-pause (for strength and recruitment)
-- Stretch-focused partials (for lengthened hypertrophy)
-- Slow eccentrics (for damage/tension)
-
-===== USER PROFILE =====
-Height: ${profile?.height || "Unknown"} ${profile?.heightUnit || "cm"}
-Weight: ${weight} ${weightUnit} (${Math.round(weightLbs)} lbs)
-Age: ${age} years
-Sex: ${sex.toUpperCase()}
-Primary Goal: ${goal.toUpperCase()}
-Experience Level: ${experienceLevel.toUpperCase()}
-Training Days Available: ${days}
-Enhanced Status: ${isEnhanced ? "YES (on cycle)" : "NO (natural)"}
-${cycleContext}
-${macroContext}
-${weakPointContext}
-${proportionContext}
-${strengthContext}
-${postureContext}
-${compoundContext}
-${medicationContext}
-
-===== SERVER-CALCULATED TRAINING PARAMETERS =====
-THESE VALUES ARE MANDATORY - DO NOT DEVIATE:
-- Target Sets Per Muscle Group Per Week: ${baseSetsPerMuscle} sets
-- Primary Rep Range: ${primaryRepRange}
-- Intensity Guidance: ${intensityGuidance}
-
-The above values were calculated specifically for this ${age}-year-old ${experienceLevel} ${isEnhanced ? "enhanced" : "natural"} athlete with goal "${goal}".
-
-===== EXERCISE DATABASE =====
-${JSON.stringify(EXERCISE_FORM_DATABASE, null, 2)}
-
-===== MACHINE VS FREE WEIGHT SELECTION GUIDELINES =====
-Use a MIX of free weights, machines, and cables for optimal results. Select equipment based on:
-
-WHEN TO PREFER MACHINES:
-- Isolation exercises (better constant tension, safer failure training)
-- Weak point work (machines allow focusing on target muscle without stabilizer fatigue)
-- High rep pump work (cables/machines maintain tension throughout ROM)
-- Drop sets and myo-reps (quick weight changes, no setup time)
-- Training to absolute failure (safer than free weights at RIR 0)
-- Older athletes or those with joint issues (reduced stabilizer demand)
-- Chest: Pec deck, cable flies, machine press for isolation
-- Back: Lat pulldown, cable rows, chest-supported row machines for lat focus
-- Shoulders: Machine laterals, rear delt machine for isolation work
-- Legs: Leg press/hack squat for quad focus without spine load, leg curls for hamstrings
-
-WHEN TO PREFER FREE WEIGHTS:
-- Primary compound movements (build overall strength and coordination)
-- Early in workout when fresh (squats, deadlifts, bench, OHP)
-- Strength-focused training (progressive overload on main lifts)
-- Exercises where stabilizer work is beneficial
-
-OPTIMAL MIX PER MUSCLE GROUP:
-- Start with 1-2 free weight compounds, finish with 1-2 machine/cable isolations
-- For weak points: Use MORE machine work to isolate the target muscle
-- Example chest day: Barbell Bench → Incline DB Press → Machine Fly → Cable Fly (finisher)
-
-===== PROGRAM REQUIREMENTS =====
-Create a ${days}-day ${selectedTemplate.name} program that is COMPLETELY UNIQUE to this individual.
-
-MANDATORY: Follow the ${selectedTemplate.name} structure exactly as specified above.
-MANDATORY: Target approximately ${baseSetsPerMuscle} working sets per muscle group per week.
-MANDATORY: Use ${primaryRepRange} as your primary rep range.
-
-For EACH exercise, you MUST provide:
-1. name: From exercise database
-2. sets: Working sets (NOT including warm-ups)
-3. repRange: SPECIFIC to this exercise's role (e.g., "5-7", "8-10", "12-15", "15-20+")
-4. targetRIR: 0-3 based on exercise placement and recovery status
-5. tempo: Specific tempo prescription (e.g., "3-1-1-0", "2-0-2-0")
-6. formCues: 2-3 specific coaching cues
-7. whatToFeel: The exact sensation/stretch/contraction to target
-8. rationale: WHY this specific prescription for THIS ${age}-year-old ${experienceLevel} athlete (1 sentence)
-9. intensityTechnique: (optional) For weak points: "drop set", "rest-pause", "myo-reps", etc.
-
-WEEKLY VOLUME GUIDELINES (calculated for this specific user):
-- Priority muscles: ${baseSetsPerMuscle + 4} sets/week
-- Standard muscles: ${baseSetsPerMuscle} sets/week
-- Maintenance muscles: ${Math.round(baseSetsPerMuscle * 0.7)} sets/week
-
-Respond with valid JSON:
-{
-  "programName": "Specific descriptive name for THIS person",
-  "programNotes": "2-3 sentences explaining the unique approach for this individual",
-  "weeklyVolume": { "chest": 18, "back": 22, "shoulders": 14, "arms": 16, "legs": 20 },
-  "enhancedProtocol": ${isEnhanced},
-  "periodizationNote": "How to progress this program over 4-8 weeks",
-  "schedule": [
-    {
-      "day": 1,
-      "name": "Day Name - Focus Area",
-      "muscleGroups": ["primary", "secondary"],
-      "trainingGoal": "What this session specifically targets",
-      "exercises": [
-        {
-          "name": "Exercise Name",
-          "sets": 3,
-          "repRange": "6-8",
-          "targetRIR": 2,
-          "tempo": "2-1-1-0",
-          "formCues": ["Cue 1", "Cue 2"],
-          "whatToFeel": "Specific sensation description",
-          "rationale": "Why this prescription for this person",
-          "intensityTechnique": null
-        }
-      ]
-    }
-  ]
-}`;
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: `You are an elite hypertrophy coach. CRITICAL: You MUST generate a COMPLETE training program with EVERY training day fully populated.
-
-MINIMUM REQUIREMENTS FOR EACH TRAINING DAY:
-- Upper body days: 6-8 exercises minimum
-- Lower body days: 5-7 exercises minimum
-- Full body days: 7-9 exercises minimum
-
-DO NOT return incomplete programs. Every day in the schedule must have a full exercise list.
-If the split is 4 days, you must return 4 complete training days.
-If the split is 5 days, you must return 5 complete training days.
-If the split is 6 days, you must return 6 complete training days.
-
-NEVER return a training day with fewer than 5 exercises.`,
-          },
-          { role: "user", content: prompt },
-        ],
-        max_completion_tokens: 16000,
-        response_format: { type: "json_object" },
-      });
-
-      const content = response.choices[0]?.message?.content || "{}";
-      const program = JSON.parse(content);
-
-      // Validate the program is complete
-      if (program.schedule && Array.isArray(program.schedule)) {
-        const incompleteDays = program.schedule.filter(
-          (day: any) => day.exercises && day.exercises.length < 5,
-        );
-
-        if (incompleteDays.length > 0) {
-          console.warn(
-            "Program has incomplete days:",
-            incompleteDays.map((d: any) => d.name),
-          );
-        }
-
-        // Ensure each day has proper exercise count
-        const trainingDays = program.schedule.filter(
-          (day: any) => day.exercises && day.exercises.length > 0,
-        );
-
-        console.log(
-          `Generated program with ${trainingDays.length} training days, exercises per day:`,
-          trainingDays.map(
-            (d: any) => `${d.name}: ${d.exercises?.length || 0} exercises`,
-          ),
-        );
-      }
 
       res.json(program);
     } catch (error) {
       console.error("Error generating program:", error);
-      res.status(500).json({ error: "Failed to generate training program" });
+      res.status(500).json({ error: "Failed to generate program" });
     }
   });
 
@@ -2134,9 +731,10 @@ NEVER return a training day with fewer than 5 exercises.`,
           primary: string;
           cues: string[];
         }> = [];
-        Object.values(exerciseDb).forEach((category: any) => {
+        type ExerciseEntry = { name: string; primary: string; cues: string[] };
+        Object.values(exerciseDb).forEach((category: ExerciseEntry[] | unknown) => {
           if (Array.isArray(category)) {
-            allExercises.push(...category);
+            allExercises.push(...(category as ExerciseEntry[]));
           }
         });
         exerciseInfo = allExercises.find((e) =>
@@ -2187,7 +785,8 @@ Format as JSON:
   "progressions": ["progression 1", ...],
   "regressions": ["regression 1", ...],
   "recommendedTempo": "2-1-2-0",
-  "repRecommendations": { "strength": "3-5", "hypertrophy": "8-12", "endurance": "15-20" }
+  "repRecommendations": { "strength": "3-5", "hypertrophy": "8-12", "endurance": "15-20" },
+  "logicKeywords": ["<MANDATORY: 3-5 specific biomechanical keywords (e.g., 'scapular upward rotation', 'moment arm', 'active insufficiency', etc.)>"]
 }`;
 
       const response = await openai.chat.completions.create({
@@ -2198,7 +797,7 @@ Format as JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse exercise guidance" }));
     } catch (error) {
       console.error("Error getting exercise guidance:", error);
       res.status(500).json({ error: "Failed to get exercise guidance" });
@@ -2522,7 +1121,7 @@ Format as JSON:
 
       const cycleContext =
         profile?.cycleInfo?.compounds?.length > 0
-          ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: any) => c.name).join(", ")}`
+          ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: CycleCompound) => c.name).join(", ")}`
           : "Natural lifter";
 
       const prompt = `You are an AI hypertrophy coach. Analyze the following data and provide training program adjustments.
@@ -2546,8 +1145,9 @@ Based on this data, provide:
 3. Overall recovery recommendations
 4. Any weak point prioritization
 5. Specific exercise substitutions if needed
+6. logicKeywords: ["5-7 specific scientific/clinical keywords used in your logic (e.g., 'neuromuscular fatigue', 'hypertrophic stimulus', 'recovery capacity', etc.)"]
 
-Format as JSON with keys: additionalVolume, reducedVolume, recoveryNotes, weakPointPriority, exerciseSwaps`;
+Format as JSON with keys: additionalVolume, reducedVolume, recoveryNotes, weakPointPriority, exerciseSwaps, logicKeywords`;
 
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
@@ -2557,7 +1157,7 @@ Format as JSON with keys: additionalVolume, reducedVolume, recoveryNotes, weakPo
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse program advice" }));
     } catch (error) {
       console.error("Error in program advice:", error);
       res.status(500).json({ error: "Failed to generate program advice" });
@@ -2591,7 +1191,8 @@ Provide specific calorie and macro adjustments in JSON format:
   "proteinAdjustment": number,
   "carbAdjustment": number,
   "fatAdjustment": number,
-  "reasoning": "brief explanation"
+  "reasoning": "brief explanation",
+  "logicKeywords": ["3-5 specific metabolic/nutritional keywords (e.g., 'glycogen depletion', 'thermic effect of food', 'insulin sensitivity', etc.)"]
 }`;
 
       const response = await openai.chat.completions.create({
@@ -2602,7 +1203,7 @@ Provide specific calorie and macro adjustments in JSON format:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse macro adjustment" }));
     } catch (error) {
       console.error("Error in macro adjustment:", error);
       res.status(500).json({ error: "Failed to calculate macro adjustment" });
@@ -2616,7 +1217,7 @@ Provide specific calorie and macro adjustments in JSON format:
       const strengthStandards = JSON.stringify(STRENGTH_STANDARDS, null, 2);
       const cycleContext =
         profile?.cycleInfo?.compounds?.length > 0
-          ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: any) => `${c.name} ${c.dosageAmount}${c.dosageUnit}`).join(", ")}`
+          ? `Enhanced lifter on: ${profile.cycleInfo.compounds.map((c: CycleCompound) => `${c.name} ${c.dosageAmount}${c.dosageUnit}`).join(", ")}`
           : "Natural lifter";
 
       const prompt = `${AI_SYSTEM_CONTEXT}
@@ -2688,7 +1289,7 @@ Format as JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse strength goals" }));
     } catch (error) {
       console.error("Error in strength goals:", error);
       res.status(500).json({ error: "Failed to analyze strength goals" });
@@ -2771,10 +1372,12 @@ Format as JSON:
     "workDay": ["hourly posture breaks", "chin tucks"],
     "evening": ["stretching routine"]
   },
-  "trainingAdjustments": ["reduce hip flexor dominant exercises", "add more glute work"]
+  "trainingAdjustments": ["reduce hip flexor dominant exercises", "add more glute work"],
+  "logicKeywords": ["<MANDATORY: 5-7 specific anatomical/corrective keywords (e.g., 'thoracic kyphosis', 'posterior pelvic tilt', 'scapular winging', 'reciprocal inhibition', etc.)>"]
 }`;
 
-      const imageMessages: any[] = [];
+      type ImageMessage = { type: "image_url"; image_url: { url: string; detail: string } };
+      const imageMessages: ImageMessage[] = [];
       if (photos?.front) {
         imageMessages.push({
           type: "image_url",
@@ -2818,7 +1421,7 @@ Format as JSON:
 
       const content = response.choices[0]?.message?.content || "{}";
       console.log("Posture analysis response received");
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse posture analysis" }));
     } catch (error) {
       console.error("Error in posture analysis:", error);
       res.status(500).json({
@@ -2957,7 +1560,7 @@ Format as JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse grocery list" }));
     } catch (error) {
       console.error("Error generating grocery list:", error);
       res.status(500).json({ error: "Failed to generate grocery list" });
@@ -3041,10 +1644,12 @@ Format as JSON:
     "before": ["Brace core", "Spread floor with feet"],
     "during": ["Knees out", "Chest up"],
     "finish": ["Squeeze glutes", "Full lockout"]
-  }
+  },
+  "logicKeywords": ["3-5 movement-specific keywords (e.g., 'hip hinge mechanics', 'valgus collapse', 'lumbar flexion', etc.)"]
 }`;
 
-      const imageMessages: any[] = [];
+      type ImageMessageContent = { type: "image_url"; image_url: { url: string; detail: string } };
+      const imageMessages: ImageMessageContent[] = [];
       if (videoFrames && Array.isArray(videoFrames)) {
         videoFrames.slice(0, 5).forEach((frame: string) => {
           imageMessages.push({
@@ -3070,7 +1675,7 @@ Format as JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse form analysis" }));
     } catch (error) {
       console.error("Error analyzing form video:", error);
       res.status(500).json({ error: "Failed to analyze form video" });
@@ -3157,7 +1762,8 @@ Format as JSON:
     "Adjust ramp-up weights based on how you feel",
     "Take longer rest before first working set if needed"
   ],
-  "injuryModifications": "Modifications if user has specific injuries"
+  "injuryModifications": "Modifications if user has specific injuries",
+  "logicKeywords": ["3-5 specific physiological keywords (e.g., 'synovial fluid lubrication', 'post-activation potentiation', 'core temperature', etc.)"]
 }`;
 
       const response = await openai.chat.completions.create({
@@ -3168,7 +1774,7 @@ Format as JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse warmup protocol" }));
     } catch (error) {
       console.error("Error generating warmup protocol:", error);
       res.status(500).json({ error: "Failed to generate warmup protocol" });
@@ -3207,12 +1813,12 @@ Format as JSON:
 
   app.get("/api/compounds", (req, res) => {
     try {
-      const compounds: any[] = [];
+      const compounds: TransformedCompound[] = [];
       let id = 1;
 
       // Transform injectable steroids (classes)
       for (const [key, data] of Object.entries(STEROID_PHARMACOLOGY.classes)) {
-        const compound: any = data;
+        const compound = data as CompoundData;
         const name = key.charAt(0).toUpperCase() + key.slice(1);
 
         let dosageInfo = "";
@@ -3230,21 +1836,21 @@ Format as JSON:
         if (compound.esters) {
           esterInfo = Object.entries(compound.esters)
             .map(
-              ([ester, info]: [string, any]) =>
+              ([ester, info]: [string, EsterInfo]) =>
                 `${ester.charAt(0).toUpperCase() + ester.slice(1)}: Half-life ${info.halfLife}, ${info.frequency}`,
             )
             .join("; ");
         } else if (compound.compounds) {
           esterInfo = Object.entries(compound.compounds)
             .map(
-              ([variant, info]: [string, any]) =>
+              ([variant, info]: [string, EsterInfo]) =>
                 `${info.tradeName || variant}: Half-life ${info.halfLife}, ${info.frequency}`,
             )
             .join("; ");
         } else if (compound.forms) {
           esterInfo = Object.entries(compound.forms)
             .map(
-              ([form, info]: [string, any]) =>
+              ([form, info]: [string, EsterInfo]) =>
                 `${form.charAt(0).toUpperCase() + form.slice(1)} (${info.route}): Half-life ${info.halfLife}`,
             )
             .join("; ");
@@ -3269,7 +1875,7 @@ Format as JSON:
 
       // Transform oral steroids
       for (const [key, data] of Object.entries(STEROID_PHARMACOLOGY.orals)) {
-        const oral: any = data;
+        const oral = data as CompoundData;
         compounds.push({
           id: String(id++),
           name: oral.chemicalName || key.charAt(0).toUpperCase() + key.slice(1),
@@ -3329,13 +1935,13 @@ Format as JSON:
       for (const [key, ai] of Object.entries(
         STEROID_PHARMACOLOGY.ancillaries.aromataseInhibitors,
       )) {
-        const aiData: any = ai;
+        const aiData = ai as CompoundData;
         compounds.push({
           id: String(id++),
           name: aiData.tradeName || key,
           category: "Aromatase Inhibitor (Ancillary)",
           description: `${aiData.mechanism} - used to control estrogen during cycle`,
-          commonDosages: aiData.dose,
+          commonDosages: aiData.dose || "See protocol",
           cycleLength: "As needed during cycle",
           benefits: [
             "Estrogen control",
@@ -3347,7 +1953,7 @@ Format as JSON:
             "Joint pain from low E2",
             "Mood issues",
           ],
-          notes: aiData.mechanism,
+          notes: aiData.mechanism || "",
         });
       }
 
@@ -3355,13 +1961,13 @@ Format as JSON:
       for (const [key, serm] of Object.entries(
         STEROID_PHARMACOLOGY.ancillaries.serms,
       )) {
-        const sermData: any = serm;
+        const sermData = serm as CompoundData & { use?: string };
         compounds.push({
           id: String(id++),
           name: sermData.tradeName || key,
           category: "SERM (Ancillary/PCT)",
-          description: `${sermData.use} - selective estrogen receptor modulator`,
-          commonDosages: sermData.dose,
+          description: `${sermData.use || "PCT support"} - selective estrogen receptor modulator`,
+          commonDosages: sermData.dose || "See protocol",
           cycleLength: "PCT: 4-8 weeks, or as needed for gyno",
           benefits: [
             "Stimulates natural testosterone",
@@ -3373,7 +1979,7 @@ Format as JSON:
             "Mood swings possible",
             "May increase SHBG",
           ],
-          notes: `Primary use: ${sermData.use}`,
+          notes: `Primary use: ${sermData.use || "PCT"}`,
         });
       }
 
@@ -3381,13 +1987,13 @@ Format as JSON:
       for (const [key, med] of Object.entries(
         STEROID_PHARMACOLOGY.ancillaries.prolactinControl,
       )) {
-        const medData: any = med;
+        const medData = med as CompoundData & { use?: string };
         compounds.push({
           id: String(id++),
           name: key.charAt(0).toUpperCase() + key.slice(1),
           category: "Prolactin Control (Ancillary)",
-          description: `${medData.use} - dopamine agonist`,
-          commonDosages: medData.dose,
+          description: `${medData.use || "Prolactin control"} - dopamine agonist`,
+          commonDosages: medData.dose || "See protocol",
           cycleLength: "As needed with 19-nor compounds",
           benefits: [
             "Controls prolactin",
@@ -3395,7 +2001,7 @@ Format as JSON:
             "Improved libido",
           ],
           risks: ["Nausea initially", "Can affect mood", "Expensive"],
-          notes: medData.use,
+          notes: medData.use || "",
         });
       }
 
@@ -3500,7 +2106,8 @@ Provide JSON format:
   "practicalApplication": [
     "Key takeaway 1",
     "Key takeaway 2"
-  ]
+  ],
+  "logicKeywords": ["<MANDATORY: 5-7 specific scientific keywords from the research (e.g., 'hypertrophic signaling', 'satellite cell activation', 'effective repetitions', etc.)>"]
 }`;
 
       const response = await openai.chat.completions.create({
@@ -3511,7 +2118,7 @@ Provide JSON format:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse training science research" }));
     } catch (error) {
       console.error("Error researching training science:", error);
       res.status(500).json({ error: "Failed to research training science" });
@@ -3618,8 +2225,8 @@ Provide JSON format:
       const medicationContext = medicationImpacts
         ? `
 MEDICATION IMPACTS:
-- Diet impacts: ${medicationImpacts.dietImpacts.map((impact: any) => `${impact.medication}: ${impact.effects.map((e: any) => e.effect).join("; ")}`).join(" | ")}
-- Training impacts: ${medicationImpacts.trainingImpacts.map((impact: any) => `${impact.medication}: ${impact.effects.map((e: any) => e.effect).join("; ")}`).join(" | ")}
+- Diet impacts: ${medicationImpacts.dietImpacts.map((impact: MedicationImpact) => `${impact.medication}: ${impact.effects.map((e: MedicationImpactEffect) => e.effect).join("; ")}`).join(" | ")}
+- Training impacts: ${medicationImpacts.trainingImpacts.map((impact: MedicationImpact) => `${impact.medication}: ${impact.effects.map((e: MedicationImpactEffect) => e.effect).join("; ")}`).join(" | ")}
 - Critical notes: ${medicationImpacts.criticalNotes.join(" | ") || "None"}`
         : "";
 
@@ -3712,7 +2319,7 @@ MEDICATION IMPACTS:
         ? `
 ENHANCED ATHLETE - Current Protocol:
 ${profile.cycleInfo.compounds
-          .map((c: any) => {
+          .map((c: CycleCompound) => {
             const research = compoundResearch?.[c.name];
             const nutritionAdj = research?.nutritionAdjustments;
             return `- ${c.name}: ${c.dosageAmount}${c.dosageUnit} (${c.frequency || "2x/week"})
@@ -3958,7 +2565,8 @@ Return JSON:
     "Warning signs to watch for"
   ],
   "confidenceLevel": "high/medium/low",
-  "methodology": "Summary of calculation approach"
+  "methodology": "Summary of calculation approach",
+  "logicKeywords": ["<MANDATORY: 5-7 specific metabolic/physiological keywords (e.g., 'nitrogen balance', 'nutrient partitioning', 'lipolysis rate', 'insulin-like growth factor', etc.)>"]
 }`;
 
       const response = await openai.chat.completions.create({
@@ -3969,7 +2577,7 @@ Return JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse comprehensive macros" }));
     } catch (error) {
       console.error("Error calculating comprehensive macros:", error);
       res
@@ -4083,7 +2691,7 @@ Format as JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      res.json(JSON.parse(content));
+      res.json(safeJsonParse(content, { error: "Failed to parse compound research" }));
     } catch (error) {
       console.error("Error researching compound:", error);
       res.status(500).json({ error: "Failed to research compound" });
@@ -4143,9 +2751,9 @@ Format as JSON:
         adjustment = "progress";
       }
 
-      const adjustedSchedule = (program.schedule || []).map((day: any) => ({
+      const adjustedSchedule = (program.schedule || []).map((day: ProgramDay) => ({
         ...day,
-        exercises: (day.exercises || []).map((ex: any) => ({
+        exercises: (day.exercises || []).map((ex: ProgramExercise) => ({
           ...ex,
           sets: Math.max(1, Math.round((Number(ex.sets) || 1) * multiplier)),
         })),
@@ -4177,4 +2785,182 @@ Format as JSON:
     }
   });
 
+  // Get tier ranking of users
+  app.get("/api/coach/tier-ranking", async (req, res) => {
+    try {
+      const allProfiles = await db.select().from(profiles).limit(50);
+
+      const rankedData = allProfiles.map((p) => {
+        // Calculate a pseudo-score based on profile stats if real score logic isn't defined
+        const score = (p.age || 25) * 10 + (p.weight || 180) + (p.height || 175);
+        return {
+          rank: 0, // Will be set after sorting
+          name: p.name || `User ${p.id.substring(0, 4)}`,
+          score: Math.floor(score),
+          tier: score > 1000 ? "Gold" : score > 800 ? "Silver" : "Bronze",
+          avatar: (p.name || "U")[0].toUpperCase(),
+          id: p.id
+        };
+      });
+
+      const sorted = rankedData
+        .sort((a, b) => b.score - a.score)
+        .map((item, index) => ({ ...item, rank: index + 1 }));
+
+      res.json(sorted);
+    } catch (error) {
+      console.error("Error fetching tier ranking:", error);
+      res.status(500).json({ error: "Failed to fetch tier ranking" });
+    }
+  });
+
+  // Infer gym equipment based on gym name and location using web search + AI
+  app.post("/api/coach/infer-equipment", async (req, res) => {
+    try {
+      const { gymName, city, state } = req.body;
+
+      if (!gymName) {
+        return res.status(400).json({ error: "Gym name is required" });
+      }
+
+      // List of equipment IDs that match the EquipmentScreen
+      const EQUIPMENT_IDS = [
+        "barbell",
+        "dumbbells",
+        "cables",
+        "squat-rack",
+        "bench",
+        "pull-up-bar",
+        "leg-press",
+        "smith-machine",
+        "machines",
+        "ez-bar",
+        "dip-station",
+        "resistance-bands",
+        "kettlebells",
+        "trap-bar",
+        "landmine",
+      ];
+
+      const defaultResult: {
+        equipment: string[];
+        gymType: string;
+        confidence: string;
+        notes: string;
+        searchUsed: boolean;
+        sourcesChecked?: number;
+      } = {
+        equipment: EQUIPMENT_IDS,
+        gymType: "Unknown",
+        confidence: "low",
+        notes: "Could not determine gym type. Defaulting to full equipment list.",
+        searchUsed: false,
+      };
+
+      // Step 1: Try to search for gym information via SerpAPI
+      let searchSnippets: { title: string; snippet: string; link: string }[] = [];
+      let searchUsed = false;
+
+      if (process.env.SERP_API_KEY) {
+        try {
+          const locationPart = [city, state].filter(Boolean).join(", ");
+          const searchQuery = `"${gymName}" ${locationPart} gym equipment facilities amenities weights`;
+          
+          const serpUrl = new URL("https://serpapi.com/search");
+          serpUrl.searchParams.set("engine", "google");
+          serpUrl.searchParams.set("q", searchQuery);
+          serpUrl.searchParams.set("api_key", process.env.SERP_API_KEY);
+          serpUrl.searchParams.set("num", "5");
+          
+          const serpResponse = await fetch(serpUrl.toString());
+          
+          if (serpResponse.ok) {
+            const searchResults = await serpResponse.json();
+            
+            if (searchResults.organic_results && searchResults.organic_results.length > 0) {
+              searchSnippets = searchResults.organic_results.map((r: SearchSnippet & { link?: string }) => ({
+                title: r.title || "",
+                snippet: r.snippet || "",
+                link: r.link || "",
+              }));
+              searchUsed = true;
+            }
+          }
+        } catch (searchError) {
+          console.warn("SerpAPI search failed, falling back to AI inference:", searchError);
+        }
+      }
+
+      // Step 2: Build prompt with or without search results
+      let searchContext = "";
+      if (searchUsed && searchSnippets.length > 0) {
+        searchContext = `
+WEB SEARCH RESULTS FOR "${gymName}" in ${city || "unknown city"}, ${state || "unknown state"}:
+${searchSnippets.map((s, i) => `${i + 1}. ${s.title}\n   ${s.snippet}\n   Source: ${s.link}`).join("\n\n")}
+
+IMPORTANT: Use the search results above to determine the actual equipment at this specific gym.
+If the search results mention specific equipment, facilities, or amenities, use that information.
+If the search results don't provide equipment details, fall back to your knowledge of this gym type.
+`;
+      } else {
+        searchContext = `
+NOTE: No web search results available. Use your knowledge of gym chains and facilities to infer equipment.
+`;
+      }
+
+      const prompt = `You are an expert on gym facilities and equipment. Based on the gym information and search results provided, determine what equipment is available.
+
+GYM INFORMATION:
+- Name: ${gymName}
+- City: ${city || "Not specified"}
+- State: ${state || "Not specified"}
+${searchContext}
+KNOWN GYM CHAIN EQUIPMENT PATTERNS (use as fallback if search results don't specify):
+- Planet Fitness: No barbells, no squat racks, Smith machines only, dumbbells up to 75lbs, cables, machines
+- LA Fitness: Full equipment including barbells, squat racks, cables, machines, dumbbells
+- Gold's Gym: Full powerlifting and bodybuilding equipment, barbells, squat racks, cables, machines, specialty bars
+- Anytime Fitness: Varies by location, usually has basics - dumbbells, cables, some machines, sometimes squat rack
+- YMCA: Usually well-equipped with barbells, squat racks, cables, machines
+- University Rec Centers: Typically very well-equipped with full Olympic platforms, squat racks, barbells, cables, machines, specialty equipment
+- CrossFit boxes: Barbells, squat racks, pull-up bars, kettlebells, no machines
+- Orange Theory: No free weights, cardio focused, limited resistance equipment
+- F45: Functional equipment, dumbbells, kettlebells, resistance bands, no barbells
+
+AVAILABLE EQUIPMENT IDS (only use these exact IDs):
+${EQUIPMENT_IDS.map(id => `- "${id}"`).join("\n")}
+
+Respond with a JSON object:
+{
+  "equipment": ["array of equipment IDs from the list above that are available at this gym"],
+  "gymType": "Type of gym (e.g., 'Commercial Chain', 'University Rec Center', 'Boutique', 'CrossFit', 'Budget Gym')",
+  "confidence": "high" | "medium" | "low" (high if search results confirmed equipment, medium if inferred from gym type, low if uncertain),
+  "notes": "Brief explanation of the equipment determination, citing search results if used"
+}`;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        max_completion_tokens: 600,
+        response_format: { type: "json_object" },
+      });
+
+      const result = safeJsonParse(response.choices[0]?.message?.content, defaultResult);
+
+      // Validate equipment IDs - only return valid ones
+      result.equipment = (result.equipment || []).filter((id: string) =>
+        EQUIPMENT_IDS.includes(id)
+      );
+      
+      // Add metadata about whether search was used
+      result.searchUsed = searchUsed;
+      if (searchUsed) {
+        result.sourcesChecked = searchSnippets.length;
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error inferring equipment:", error);
+      res.status(500).json({ error: "Failed to infer equipment" });
+    }
+  });
 }

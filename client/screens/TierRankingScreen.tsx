@@ -8,6 +8,8 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 const AnimatedView = Animated.createAnimatedComponent(View);
 
 import { ThemedText } from "@/components/ThemedText";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { useTheme } from "@/hooks/useTheme";
 import { Colors, Spacing, BorderRadius } from "@/constants/theme";
 
@@ -24,10 +26,25 @@ export default function TierRankingScreen() {
     const { theme } = useTheme();
     const navigation = useNavigation<any>();
 
-    const { data: leaderboard = [], isLoading } = useQuery({
+    const { data: leaderboard = [], isLoading, isError, refetch } = useQuery({
         queryKey: ["tierRanking"],
         queryFn: getTierRanking,
     });
+
+    if (isLoading) {
+        return <LoadingState message="Loading tier ranking..." fullScreen />;
+    }
+
+    if (isError) {
+        return (
+            <ErrorState
+                title="Failed to Load"
+                message="Could not load tier ranking data"
+                onRetry={() => refetch()}
+                fullScreen
+            />
+        );
+    }
 
     const topThree = leaderboard.slice(0, 3);
     const rest = leaderboard.slice(3);
@@ -54,24 +71,52 @@ export default function TierRankingScreen() {
         );
     };
 
-    const renderBarChart = () => (
-        <View style={styles.chartContainer}>
-            <View style={styles.chartHeader}>
-                <ThemedText type="h4">Strength Stats</ThemedText>
-                <View style={styles.filterPill}>
-                    <ThemedText type="small">All / Man</ThemedText>
+    // Calculate strength stats from leaderboard data
+    const getStrengthData = () => {
+        if (leaderboard.length === 0) return [];
+        // Use actual scores to generate chart heights (normalized to 100)
+        const maxScore = Math.max(...leaderboard.map(l => l.score));
+        return leaderboard.slice(0, 7).map(entry => ({
+            height: Math.round((entry.score / maxScore) * 100),
+            label: entry.name.charAt(0)
+        }));
+    };
+
+    const strengthData = getStrengthData();
+
+    const renderBarChart = () => {
+        if (strengthData.length === 0) {
+            return (
+                <View style={styles.chartContainer}>
+                    <View style={styles.chartHeader}>
+                        <ThemedText type="h4">Strength Stats</ThemedText>
+                    </View>
+                    <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: 'center', paddingVertical: Spacing.xl }}>
+                        No strength data available yet
+                    </ThemedText>
+                </View>
+            );
+        }
+
+        return (
+            <View style={styles.chartContainer}>
+                <View style={styles.chartHeader}>
+                    <ThemedText type="h4">Strength Stats</ThemedText>
+                    <View style={styles.filterPill}>
+                        <ThemedText type="small">Top {strengthData.length}</ThemedText>
+                    </View>
+                </View>
+                <View style={styles.chartBars}>
+                    {strengthData.map((item, i) => (
+                        <View key={`strength-bar-${i}`} style={styles.barColumn}>
+                            <View style={[styles.bar, { height: item.height, backgroundColor: Colors.dark.neonCyan }]} />
+                            <ThemedText type="small" style={styles.barLabel}>{item.label}</ThemedText>
+                        </View>
+                    ))}
                 </View>
             </View>
-            <View style={styles.chartBars}>
-                {[60, 45, 80, 50, 95, 70, 65].map((h, i) => (
-                    <View key={i} style={styles.barColumn}>
-                        <View style={[styles.bar, { height: h, backgroundColor: Colors.dark.neonCyan }]} />
-                        <ThemedText type="small" style={styles.barLabel}>{['S', 'S', 'M', 'T', 'W', 'T', 'F'][i]}</ThemedText>
-                    </View>
-                ))}
-            </View>
-        </View>
-    );
+        );
+    };
 
     return (
         <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>

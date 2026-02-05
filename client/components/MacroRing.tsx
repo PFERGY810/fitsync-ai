@@ -1,11 +1,9 @@
-import React from "react";
+import React, { memo } from "react";
 import { View, StyleSheet } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
-
-
 
 export interface MacroRingProps {
   label: string;
@@ -17,7 +15,7 @@ export interface MacroRingProps {
   unit?: string;
 }
 
-export function MacroRing({
+export const MacroRing = memo(function MacroRing({
   label,
   current,
   target,
@@ -82,7 +80,7 @@ export function MacroRing({
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

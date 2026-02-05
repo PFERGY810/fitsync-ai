@@ -1,17 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { StyleSheet, View, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { Card } from "@/components/Card";
 import { Button } from "@/components/Button";
 import { ThemedText } from "@/components/ThemedText";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing } from "@/constants/theme";
+import { Colors, Spacing } from "@/constants/theme";
 import {
   getGeneratedProgram,
   getMacroTargets,
@@ -30,19 +32,41 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
   const [program, setProgram] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadProfile();
+  const loadProfile = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    try {
+      const [userProfile, macros, generatedProgram] = await Promise.all([
+        getUserProfile(),
+        getMacroTargets(),
+        getGeneratedProgram(),
+      ]);
+      setProfile(userProfile);
+      setMacroTargets(macros);
+      setProgram(generatedProgram);
+    } catch (err) {
+      console.error("Error loading profile:", err);
+      setError("Failed to load profile data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
-  const loadProfile = async () => {
-    const userProfile = await getUserProfile();
-    const macros = await getMacroTargets();
-    const generatedProgram = await getGeneratedProgram();
-    setProfile(userProfile);
-    setMacroTargets(macros);
-    setProgram(generatedProgram);
-  };
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile])
+  );
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadProfile(false);
+  }, [loadProfile]);
 
   const formattedHeight = useMemo(() => {
     if (!profile?.height) return "N/A";
@@ -63,6 +87,21 @@ export default function ProfileScreen() {
     );
   }, [program]);
 
+  if (loading) {
+    return <LoadingState message="Loading profile..." fullScreen />;
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Failed to Load"
+        message={error}
+        onRetry={() => loadProfile()}
+        fullScreen
+      />
+    );
+  }
+
   return (
     <KeyboardAwareScrollViewCompat
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
@@ -73,6 +112,13 @@ export default function ProfileScreen() {
         gap: Spacing.lg,
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={Colors.dark.primary}
+        />
+      }
     >
       <Card>
         <ThemedText type="h3">Profile Summary</ThemedText>

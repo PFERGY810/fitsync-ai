@@ -322,8 +322,8 @@ export default function PhysiqueAnalysisScreen() {
             <ThemedText type="h4" style={styles.panelTitle} uppercase glow glowColor={Colors.dark.neonOrange}>
               Target Acquisition (Weak Points)
             </ThemedText>
-            {analysis.weakPoints.map((point, index) => (
-              <View key={index} style={styles.weakPointTag}>
+            {analysis.weakPoints.map((point) => (
+              <View key={`weakpoint-${point}`} style={styles.weakPointTag}>
                 <ThemedText type="small" style={{ color: Colors.dark.neonOrange }}>
                   {point}
                 </ThemedText>

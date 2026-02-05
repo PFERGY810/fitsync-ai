@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { analysisJobs, profiles } from "@shared/schema";
 import { eq, asc } from "drizzle-orm";
-import { runPhysiqueAnalysis } from "../routes/coach";
+import { runPhysiqueAnalysis } from "../services/physique-service";
 import { decryptPayload } from "../utils/encryption";
 
 let workerInterval: NodeJS.Timeout | null = null;
@@ -80,7 +80,7 @@ export function startAnalysisJobWorker() {
             updatedAt: new Date(),
             completedAt: new Date(),
           })
-          .where(eq(analysisJobs.id, (error as any).jobId));
+          .where(eq(analysisJobs.id, currentJobId));
       }
     } finally {
       isProcessing = false;

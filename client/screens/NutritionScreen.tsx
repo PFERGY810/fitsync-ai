@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, memo } from "react";
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   Pressable,
   TextInput,
   Modal,
+  RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -21,6 +22,8 @@ import { Button } from "@/components/Button";
 import { MacroRing } from "@/components/MacroRing";
 import { FoodEntryCard } from "@/components/FoodEntryCard";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { useTheme } from "@/hooks/useTheme";
 import { Colors, Spacing, BorderRadius } from "@/constants/theme";
 import { storage } from "@/lib/storage";
@@ -59,6 +62,9 @@ export default function NutritionScreen() {
   const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
   const [todayEntries, setTodayEntries] = useState<FoodEntry[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [customFood, setCustomFood] = useState({
     name: "",
     calories: "",
@@ -69,14 +75,29 @@ export default function NutritionScreen() {
 
   const today = format(new Date(), "yyyy-MM-dd");
 
-  const loadData = useCallback(async () => {
-    const [targets, entries] = await Promise.all([
-      storage.getMacroTargets(),
-      storage.getFoodEntries(today),
-    ]);
-    setMacroTargets(targets || null);
-    setTodayEntries(entries);
+  const loadData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    try {
+      const [targets, entries] = await Promise.all([
+        storage.getMacroTargets(),
+        storage.getFoodEntries(today),
+      ]);
+      setMacroTargets(targets || null);
+      setTodayEntries(entries);
+    } catch (err) {
+      console.error("Error loading nutrition data:", err);
+      setError("Failed to load nutrition data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [today]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadData(false);
+  }, [loadData]);
 
   useEffect(() => {
     loadData();
@@ -116,11 +137,15 @@ export default function NutritionScreen() {
     loadData();
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await storage.deleteFoodEntry(id);
     loadData();
-  };
+  }, [loadData]);
+
+  const renderFoodEntry = useCallback(({ item }: { item: FoodEntry }) => (
+    <FoodEntryCard entry={item} onDelete={() => handleDelete(item.id)} />
+  ), [handleDelete]);
 
   const renderHeader = () => (
     <>
@@ -235,9 +260,9 @@ export default function NutritionScreen() {
           Quick Add
         </ThemedText>
         <View style={styles.quickAddGrid}>
-          {QUICK_ADD_FOODS.slice(0, 4).map((food, index) => (
+          {QUICK_ADD_FOODS.slice(0, 4).map((food) => (
             <Pressable
-              key={index}
+              key={`quick-add-${food.name}`}
               onPress={() => handleQuickAdd(food)}
               style={({ pressed }) => [
                 styles.quickAddItem,
@@ -265,13 +290,26 @@ export default function NutritionScreen() {
     </>
   );
 
+  if (loading) {
+    return <LoadingState message="Loading nutrition data..." fullScreen />;
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Failed to Load"
+        message={error}
+        onRetry={() => loadData()}
+        fullScreen
+      />
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
       <FlatList
         data={todayEntries}
-        renderItem={({ item }) => (
-          <FoodEntryCard entry={item} onDelete={() => handleDelete(item.id)} />
-        )}
+        renderItem={renderFoodEntry}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={renderHeader}
         contentContainerStyle={{
@@ -280,6 +318,13 @@ export default function NutritionScreen() {
           paddingHorizontal: Spacing.lg,
         }}
         scrollIndicatorInsets={{ bottom: insets.bottom }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.dark.primary}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <EmptyState

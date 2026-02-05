@@ -158,6 +158,7 @@ export default function HealthScreen() {
   const [allergies, setAllergies] = useState(
     profile.allergies?.join(", ") || "",
   );
+  const [injuries, setInjuries] = useState(profile.injuries || "");
   const [bloodPressureMeds, setBloodPressureMeds] = useState(
     profile.bloodPressureMedication || false,
   );
@@ -221,10 +222,11 @@ export default function HealthScreen() {
           .map((a) => a.trim())
           .filter(Boolean)
         : [],
+      injuries: injuries.trim() || undefined,
       bloodPressureMedication: bloodPressureMeds,
       hasDoctor,
     });
-    navigation.navigate("CycleStatus");
+    navigation.navigate("Equipment");
   };
 
   const handleBack = () => {
@@ -444,7 +446,7 @@ export default function HealthScreen() {
                   const pillColor = pillColors[index % pillColors.length];
                   return (
                     <GlowingPanel
-                      key={index}
+                      key={`med-${med.name || index}`}
                       glowColor={Colors.dark.neonCyan}
                       style={styles.medicationCard}
                     >
@@ -553,6 +555,40 @@ export default function HealthScreen() {
                   placeholder="e.g., Shellfish, Lactose"
                   placeholderTextColor={theme.textSecondary}
                   returnKeyType="done"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <View style={styles.injuryHeader}>
+                  <Feather name="alert-triangle" size={16} color={Colors.dark.neonOrange} style={{ marginRight: Spacing.xs }} />
+                  <ThemedText type="body" style={{ fontWeight: "600" }}>
+                    Injury History
+                  </ThemedText>
+                </View>
+                <ThemedText
+                  type="small"
+                  style={{
+                    color: theme.textSecondary,
+                    marginBottom: Spacing.sm,
+                  }}
+                >
+                  Describe any current or past injuries that may affect your training
+                </ThemedText>
+                <TextInput
+                  style={[
+                    styles.multilineInput,
+                    {
+                      backgroundColor: theme.backgroundSecondary,
+                      color: theme.text,
+                    },
+                  ]}
+                  value={injuries}
+                  onChangeText={setInjuries}
+                  placeholder="e.g., Rotator cuff tear 2 years ago - fully healed, Chronic lower back pain, ACL surgery 6 months ago - cleared for training"
+                  placeholderTextColor={theme.textSecondary}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
                 />
               </View>
             </Card>
@@ -817,6 +853,20 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     paddingHorizontal: Spacing.md,
     fontSize: 16,
+  },
+  multilineInput: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    fontSize: 16,
+    minHeight: 100,
+  },
+  injuryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: Spacing.xs,
   },
   freqButtons: {
     flexDirection: "row",

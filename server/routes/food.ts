@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { db } from "../db";
 import { eq, and } from "drizzle-orm";
 import { foodEntries } from "@shared/schema";
+import type { FoodNutrient, UsdaFood, FoodItem } from "../types";
 
 export function registerFoodRoutes(app: Express) {
   // ============================================
@@ -18,9 +19,9 @@ export function registerFoodRoutes(app: Express) {
   };
 
   const getUsdaNutrientValue = (
-    foodNutrients: any[] | undefined,
+    foodNutrients: FoodNutrient[] | undefined,
     nutrientId: number,
-  ) => {
+  ): number => {
     if (!foodNutrients) return 0;
     const match = foodNutrients.find(
       (nutrient) =>
@@ -31,7 +32,7 @@ export function registerFoodRoutes(app: Express) {
     return typeof value === "number" ? value : 0;
   };
 
-  const mapUsdaFoodToItem = (food: any) => {
+  const mapUsdaFoodToItem = (food: UsdaFood & { labelNutrients?: Record<string, { value?: number }> }) => {
     const servingSize = food?.servingSize || 100;
     const servingUnit = food?.servingSizeUnit || "g";
     const labelNutrients = food?.labelNutrients || null;
@@ -138,7 +139,7 @@ export function registerFoodRoutes(app: Express) {
             const usdaData = await usdaResponse.json();
             const foods = usdaData?.foods || [];
             const match =
-              foods.find((food: any) => food?.gtinUpc === barcode) || foods[0];
+              foods.find((food: UsdaFood & { gtinUpc?: string }) => food?.gtinUpc === barcode) || foods[0];
 
             if (match?.fdcId) {
               try {
@@ -265,8 +266,8 @@ export function registerFoodRoutes(app: Express) {
           if (usdaResponse.ok) {
             const usdaData = await usdaResponse.json();
             const foods = (usdaData.foods || [])
-              .map((food: any) => mapUsdaFoodToItem(food))
-              .filter((food: any) => food.name && food.calories > 0);
+              .map((food: UsdaFood) => mapUsdaFoodToItem(food))
+              .filter((food: { name: string; calories: number }) => food.name && food.calories > 0);
 
             if (foods.length > 0) {
               console.log("[Food API] USDA results:", foods.length);
@@ -305,8 +306,20 @@ export function registerFoodRoutes(app: Express) {
 
       const data = await response.json();
 
+      interface OpenFoodFactsProduct {
+        product_name?: string;
+        product_name_en?: string;
+        brands?: string;
+        code?: string;
+        serving_quantity?: number;
+        serving_quantity_unit?: string;
+        nutriments?: Record<string, number>;
+        image_small_url?: string;
+        image_url?: string;
+      }
+      
       const foods = (data.products || [])
-        .map((product: any) => {
+        .map((product: OpenFoodFactsProduct) => {
           const nutriments = product.nutriments || {};
           const servingSize = product.serving_quantity || 100;
 
@@ -318,7 +331,7 @@ export function registerFoodRoutes(app: Express) {
             servingUnit: product.serving_quantity_unit || "g",
             calories:
               Math.round(
-                nutriments["energy-kcal_100g"] * (servingSize / 100),
+                (nutriments["energy-kcal_100g"] || 0) * (servingSize / 100),
               ) || 0,
             protein:
               Math.round(
@@ -348,7 +361,7 @@ export function registerFoodRoutes(app: Express) {
             source: "openfoodfacts",
           };
         })
-        .filter((f: any) => f.name && f.name !== "Unknown" && f.calories > 0);
+        .filter((f: { name: string; calories: number }) => f.name && f.name !== "Unknown" && f.calories > 0);
 
       console.log("[Food API] Found", foods.length, "results");
       res.json({
@@ -357,8 +370,8 @@ export function registerFoodRoutes(app: Express) {
         pageSize,
         totalCount: data.count || 0,
       });
-    } catch (error: any) {
-      if (error?.name === "AbortError") {
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") {
         console.error("[Food API] Request timed out");
         return res.status(504).json({ error: "Search timed out. Try again." });
       }

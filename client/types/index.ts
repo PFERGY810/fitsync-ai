@@ -12,7 +12,20 @@ export interface UserProfile {
   experienceLevel: "beginner" | "intermediate" | "advanced" | "elite";
   targetWeight?: number;
   targetTimeframe?: number;
-  trainingProgram?: any;
+  trainingProgram?: {
+    templateName?: string;
+    schedule?: Array<{
+      day: number;
+      name: string;
+      muscleGroups: string[];
+      exercises: Array<{
+        name: string;
+        sets: number;
+        repRange?: string;
+        targetRIR?: number;
+      }>;
+    }>;
+  };
   trainingTemplate?: string;
   trainingDaysPerWeek?: number;
   medications?: string[];
@@ -39,9 +52,29 @@ export interface UserProfile {
   locationState?: string;
   locationCountry?: string;
   calculatedMacros?: MacroTargets;
-  cycleInfo?: any;
-  physiqueAnalysis?: any;
-  compoundResearch?: any;
+  cycleInfo?: {
+    isEnhanced: boolean;
+    weeksIn?: number;
+    totalWeeks?: number;
+    compounds?: Array<{
+      name: string;
+      dosageAmount: number;
+      dosageUnit: string;
+      frequency: string;
+      administrationMethod: string;
+    }>;
+  };
+  physiqueAnalysis?: {
+    overallScore?: number;
+    bodyFatEstimate?: string;
+    muscleRatings?: Array<{ muscle: string; rating: number }>;
+    weakPoints?: string[];
+    strongPoints?: string[];
+    postureFlags?: string[];
+    logicKeywords?: string[];
+  };
+  compoundResearch?: Record<string, unknown>;
+  onboardingCompleted?: boolean;
   createdAt: string;
   updatedAt: string;
 }

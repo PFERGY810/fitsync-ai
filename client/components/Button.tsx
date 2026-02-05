@@ -1,4 +1,4 @@
-import React, { ReactNode } from "react";
+import React, { ReactNode, useCallback } from "react";
 import { StyleSheet, Pressable, ViewStyle, StyleProp, TextStyle } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -10,6 +10,7 @@ import Animated, {
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Spacing } from "@/constants/theme";
+import haptics from "@/lib/haptics";
 
 interface ButtonProps {
   onPress?: () => void;
@@ -47,17 +48,25 @@ export function Button({
     transform: [{ scale: scale.value }],
   }));
 
-  const handlePressIn = () => {
+  const handlePressIn = useCallback(() => {
     if (!disabled) {
       scale.value = withSpring(0.98, springConfig);
+      haptics.lightTap();
     }
-  };
+  }, [disabled, scale]);
 
-  const handlePressOut = () => {
+  const handlePressOut = useCallback(() => {
     if (!disabled) {
       scale.value = withSpring(1, springConfig);
     }
-  };
+  }, [disabled, scale]);
+
+  const handlePress = useCallback(() => {
+    if (!disabled && onPress) {
+      haptics.mediumTap();
+      onPress();
+    }
+  }, [disabled, onPress]);
 
   const getVariantStyles = () => {
     switch (variant) {
@@ -90,7 +99,7 @@ export function Button({
 
   return (
     <AnimatedPressable
-      onPress={disabled ? undefined : onPress}
+      onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled}

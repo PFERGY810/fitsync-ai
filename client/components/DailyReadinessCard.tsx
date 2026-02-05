@@ -9,20 +9,25 @@ import { useTheme } from "@/hooks/useTheme";
 import { Colors, Spacing, BorderRadius } from "@/constants/theme";
 
 interface DailyReadinessCardProps {
-    score: number;
-    history: number[]; // Array of last 7 days scores
+    score: number | null;
+    history: (number | null)[]; // Array of last 7 days scores
 }
 
 export function DailyReadinessCard({ score, history }: DailyReadinessCardProps) {
     const { theme } = useTheme();
     const screenWidth = Dimensions.get("window").width - Spacing.lg * 2;
 
-    // Fill data if empty
+    // Filter out null values and provide meaningful chart data
+    const validHistory = history.filter((h): h is number => h !== null);
+    const displayScore = score ?? 0;
+    const hasData = validHistory.length > 0 || score !== null;
+
+    // Prepare chart data - use valid history or show empty state
     const chartData = {
         labels: ["M", "T", "W", "T", "F", "S", "S"],
         datasets: [
             {
-                data: history.length > 0 ? history : [65, 70, 75, 72, 80, 82, score],
+                data: validHistory.length > 0 ? validHistory : [0],
                 color: (opacity = 1) => `rgba(0, 215, 199, ${opacity})`, // Cyan color
                 strokeWidth: 3,
             },
@@ -35,8 +40,9 @@ export function DailyReadinessCard({ score, history }: DailyReadinessCardProps) 
         return Colors.dark.error;
     };
 
-    const scoreColor = getScoreColor(score);
-    const isUp = history.length > 1 && score >= history[history.length - 2];
+    const scoreColor = getScoreColor(displayScore);
+    const previousScore = validHistory.length > 1 ? validHistory[validHistory.length - 2] : null;
+    const isUp = previousScore !== null && displayScore >= previousScore;
 
     return (
         <Card elevation={0} style={styles.card}>
@@ -54,43 +60,53 @@ export function DailyReadinessCard({ score, history }: DailyReadinessCardProps) 
 
             <View style={styles.scoreRow}>
                 <ThemedText style={[styles.scoreText]} lightColor="#fff" darkColor="#fff">
-                    {score}
+                    {hasData ? displayScore : "--"}
                 </ThemedText>
-                <View style={[styles.badge, { backgroundColor: isUp ? "rgba(46, 204, 113, 0.2)" : "rgba(231, 76, 60, 0.2)" }]}>
-                    <Feather
-                        name={isUp ? "trending-up" : "trending-down"}
-                        size={16}
-                        color={isUp ? Colors.dark.success : Colors.dark.error}
-                    />
-                </View>
+                {hasData && previousScore !== null && (
+                    <View style={[styles.badge, { backgroundColor: isUp ? "rgba(46, 204, 113, 0.2)" : "rgba(231, 76, 60, 0.2)" }]}>
+                        <Feather
+                            name={isUp ? "trending-up" : "trending-down"}
+                            size={16}
+                            color={isUp ? Colors.dark.success : Colors.dark.error}
+                        />
+                    </View>
+                )}
             </View>
 
-            <LineChart
-                data={chartData}
-                width={screenWidth - Spacing.lg} // Adjust for padding
-                height={100}
-                withDots={false}
-                withInnerLines={false}
-                withOuterLines={false}
-                withVerticalLabels={true}
-                withHorizontalLabels={false}
-                chartConfig={{
-                    backgroundColor: "transparent",
-                    backgroundGradientFrom: "transparent",
-                    backgroundGradientTo: "transparent",
-                    decimalPlaces: 0,
-                    color: (opacity = 1) => `rgba(0, 215, 199, ${opacity})`,
-                    labelColor: (opacity = 1) => `rgba(160, 160, 160, ${opacity})`,
-                    style: {
-                        borderRadius: 16,
-                    },
-                    propsForBackgroundLines: {
-                        strokeWidth: 0,
-                    },
-                }}
-                bezier
-                style={styles.chart}
-            />
+            {validHistory.length > 0 ? (
+                <LineChart
+                    data={chartData}
+                    width={screenWidth - Spacing.lg} // Adjust for padding
+                    height={100}
+                    withDots={false}
+                    withInnerLines={false}
+                    withOuterLines={false}
+                    withVerticalLabels={true}
+                    withHorizontalLabels={false}
+                    chartConfig={{
+                        backgroundColor: "transparent",
+                        backgroundGradientFrom: "transparent",
+                        backgroundGradientTo: "transparent",
+                        decimalPlaces: 0,
+                        color: (opacity = 1) => `rgba(0, 215, 199, ${opacity})`,
+                        labelColor: (opacity = 1) => `rgba(160, 160, 160, ${opacity})`,
+                        style: {
+                            borderRadius: 16,
+                        },
+                        propsForBackgroundLines: {
+                            strokeWidth: 0,
+                        },
+                    }}
+                    bezier
+                    style={styles.chart}
+                />
+            ) : (
+                <View style={styles.emptyChart}>
+                    <ThemedText type="small" style={{ color: theme.textSecondary, textAlign: 'center' }}>
+                        Complete daily check-ins to see your readiness trend
+                    </ThemedText>
+                </View>
+            )}
         </Card>
     );
 }
@@ -129,5 +145,11 @@ const styles = StyleSheet.create({
         paddingRight: 0,
         paddingLeft: 0,
         marginLeft: -Spacing.md, // Offset to align with left edge
+    },
+    emptyChart: {
+        height: 100,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: Spacing.lg,
     },
 });

@@ -1,3 +1,11 @@
+export interface EquipmentConfig {
+  preset: string;
+  available: string[];
+  gymName?: string;
+  gymCity?: string;
+  gymState?: string;
+}
+
 export interface OnboardingProfile {
   id?: string;
   userId?: string;
@@ -23,6 +31,12 @@ export interface OnboardingProfile {
   locationCity?: string;
   locationState?: string;
   locationCountry?: string;
+
+  // Equipment
+  equipment?: EquipmentConfig;
+
+  // Injuries
+  injuries?: string;
 
   // Health & Medications
   medications: string[];
@@ -221,6 +235,7 @@ export type OnboardingStep =
   | "goals"
   | "strength-goals"
   | "health"
+  | "equipment"
   | "cycle-status"
   | "progress-photos"
   | "physique-analysis"
@@ -234,6 +249,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   "goals",
   "strength-goals",
   "health",
+  "equipment",
   "cycle-status",
   "progress-photos",
   "physique-analysis",

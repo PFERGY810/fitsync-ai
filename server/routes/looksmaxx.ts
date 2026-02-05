@@ -1,17 +1,12 @@
 import type { Express } from "express";
-import OpenAI from "openai";
 import { db } from "../db";
+import { openai } from "../utils/openai-client";
 import { eq, desc } from "drizzle-orm";
 import { looksmaxxAnalyses, looksmaxxProtocols, looksmaxxTreatments } from "@shared/schema";
 import { buildAiContext } from "../utils/ai-context";
 import { validatePhotos, sanitizeAiResponse, rateLimitMiddleware } from "../utils/validation";
 import { AI_SYSTEM_CONTEXT, LOOKSMAXXING_KNOWLEDGE, LOOKSMAXXING_DISCLAIMER } from "../knowledge";
-
-const openai = new OpenAI({
-  // Allow server to boot even if keys aren't set yet.
-  // Requests will fail with 401 until a real key is provided.
-  apiKey: process.env.OPENAI_API_KEY || "missing",
-});
+import { safeJsonParse } from "../utils/safe-json";
 
 export function registerLooksmaxxRoutes(app: Express) {
   // ============================================
@@ -36,7 +31,8 @@ export function registerLooksmaxxRoutes(app: Express) {
         });
       }
 
-      const imageMessages: any[] = [];
+      type ImageMessage = { type: "image_url"; image_url: { url: string; detail: string } };
+      const imageMessages: ImageMessage[] = [];
       if (photos?.front) {
         imageMessages.push({
           type: "image_url",
@@ -73,6 +69,7 @@ Return JSON:
   "canthalTilt": { "value": "estimate or not_visible", "notes": "short note" },
   "ipd": { "value": "estimate or not_visible", "notes": "short note" },
   "noseChinAlignment": { "value": "aligned/misaligned/not_visible", "notes": "short note" },
+  "logicKeywords": ["3-5 specific anatomical/aesthetic keywords used in your logic (e.g., 'bizygomatic width', 'gonial eversion', 'negative canthal tilt')"],
   "confidence": "low/medium/high"
 }`;
 
@@ -90,7 +87,12 @@ Return JSON:
       });
 
       const content = response.choices[0]?.message?.content || "{}";
-      const analysis = JSON.parse(content);
+      const defaultAnalysis = {
+        overallAssessment: "Analysis could not be completed.",
+        gonialAngle: { value: "not_visible", notes: "" },
+        confidence: "low"
+      };
+      const analysis = safeJsonParse(content, defaultAnalysis);
 
       if (resolvedProfileId) {
         await db.insert(looksmaxxAnalyses).values({

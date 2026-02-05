@@ -11,6 +11,8 @@ import PostureAnalysisScreen from "@/screens/PostureAnalysisScreen";
 import GroceryListScreen from "@/screens/GroceryListScreen";
 import WarmupScreen from "@/screens/WarmupScreen";
 import HealthmaxxScreen from "@/screens/HealthmaxxScreen";
+import AnalyticsScreen from "@/screens/AnalyticsScreen";
+import AchievementsScreen from "@/screens/AchievementsScreen";
 import { HeaderTitle } from "@/components/HeaderTitle";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useTheme } from "@/hooks/useTheme";
@@ -24,6 +26,8 @@ export type DashboardStackParamList = {
   GroceryList: undefined;
   Warmup: undefined;
   Healthmaxx: undefined;
+  Analytics: undefined;
+  Achievements: undefined;
 };
 
 const Stack = createNativeStackNavigator<DashboardStackParamList>();
@@ -83,6 +87,16 @@ export default function DashboardStackNavigator() {
         name="Healthmaxx"
         component={HealthmaxxScreen}
         options={{ headerTitle: "Healthmaxx" }}
+      />
+      <Stack.Screen
+        name="Analytics"
+        component={AnalyticsScreen}
+        options={{ headerTitle: "Analytics" }}
+      />
+      <Stack.Screen
+        name="Achievements"
+        component={AchievementsScreen}
+        options={{ headerTitle: "Achievements" }}
       />
     </Stack.Navigator>
   );

@@ -1,54 +1,104 @@
-import React, { Component, ComponentType, PropsWithChildren } from "react";
-import { ErrorFallback, ErrorFallbackProps } from "@/components/ErrorFallback";
+import React, { Component, ErrorInfo, ReactNode } from "react";
+import { View, StyleSheet, Pressable } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { ThemedText } from "./ThemedText";
+import { Colors, Spacing, BorderRadius } from "@/constants/theme";
 
-export type ErrorBoundaryProps = PropsWithChildren<{
-  FallbackComponent?: ComponentType<ErrorFallbackProps>;
-  onError?: (error: Error, stackTrace: string) => void;
-}>;
+interface Props {
+  children: ReactNode;
+  fallback?: ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+}
 
-type ErrorBoundaryState = { error: Error | null };
+interface State {
+  hasError: boolean;
+  error: Error | null;
+}
 
-/**
- * This is a special case for for using the class components. Error boundaries must be class components because React only provides error boundary functionality through lifecycle methods (componentDidCatch and getDerivedStateFromError) which are not available in functional components.
- * https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary
- */
-
-export class ErrorBoundary extends Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
-  state: ErrorBoundaryState = { error: null };
-
-  static defaultProps: {
-    FallbackComponent: ComponentType<ErrorFallbackProps>;
-  } = {
-    FallbackComponent: ErrorFallback,
-  };
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error };
+export class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, error: null };
   }
 
-  componentDidCatch(error: Error, info: { componentStack: string }): void {
-    if (typeof this.props.onError === "function") {
-      this.props.onError(error, info.componentStack);
-    }
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
   }
 
-  resetError = (): void => {
-    this.setState({ error: null });
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("[ErrorBoundary] Caught error:", error, errorInfo);
+    this.props.onError?.(error, errorInfo);
+  }
+
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null });
   };
 
   render() {
-    const { FallbackComponent } = this.props;
+    if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
 
-    return this.state.error && FallbackComponent ? (
-      <FallbackComponent
-        error={this.state.error}
-        resetError={this.resetError}
-      />
-    ) : (
-      this.props.children
-    );
+      return (
+        <View style={styles.container}>
+          <View style={styles.iconContainer}>
+            <Feather name="alert-triangle" size={48} color={Colors.dark.error} />
+          </View>
+          <ThemedText type="h3" style={styles.title}>
+            Something went wrong
+          </ThemedText>
+          <ThemedText type="body" style={styles.message}>
+            {this.state.error?.message || "An unexpected error occurred"}
+          </ThemedText>
+          <Pressable style={styles.retryButton} onPress={this.handleRetry}>
+            <Feather name="refresh-cw" size={16} color="#FFFFFF" />
+            <ThemedText type="body" style={styles.retryText}>
+              Try Again
+            </ThemedText>
+          </Pressable>
+        </View>
+      );
+    }
+
+    return this.props.children;
   }
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.xl,
+    backgroundColor: Colors.dark.backgroundRoot,
+  },
+  iconContainer: {
+    marginBottom: Spacing.lg,
+  },
+  title: {
+    marginBottom: Spacing.sm,
+    textAlign: "center",
+  },
+  message: {
+    color: Colors.dark.textSecondary,
+    textAlign: "center",
+    marginBottom: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
+  },
+  retryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    backgroundColor: Colors.dark.primary,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.md,
+  },
+  retryText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+  },
+});
+
+export default ErrorBoundary;

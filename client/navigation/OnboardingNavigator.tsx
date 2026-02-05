@@ -8,6 +8,7 @@ import BasicProfileScreen from "@/screens/onboarding/BasicProfileScreen";
 import GoalsScreen from "@/screens/onboarding/GoalsScreen";
 import StrengthGoalsScreen from "@/screens/onboarding/StrengthGoalsScreen";
 import HealthScreen from "@/screens/onboarding/HealthScreen";
+import EquipmentScreen from "@/screens/onboarding/EquipmentScreen";
 import CycleStatusScreen from "@/screens/onboarding/CycleStatusScreen";
 import TrainingProgramScreen from "@/screens/onboarding/TrainingProgramScreen";
 import ProgressPhotosScreen from "@/screens/onboarding/ProgressPhotosScreen";
@@ -22,6 +23,7 @@ export type OnboardingStackParamList = {
   Goals: undefined;
   StrengthGoals: undefined;
   Health: undefined;
+  Equipment: undefined;
   CycleStatus: undefined;
   TrainingProgram: undefined;
   ProgressPhotos: undefined;
@@ -46,6 +48,7 @@ function OnboardingScreens() {
       <Stack.Screen name="Goals" component={GoalsScreen} />
       <Stack.Screen name="StrengthGoals" component={StrengthGoalsScreen} />
       <Stack.Screen name="Health" component={HealthScreen} />
+      <Stack.Screen name="Equipment" component={EquipmentScreen} />
       <Stack.Screen name="CycleStatus" component={CycleStatusScreen} />
       <Stack.Screen name="ProgressPhotos" component={ProgressPhotosScreen} />
       <Stack.Screen name="PhysiqueAnalysis" component={PhysiqueAnalysisScreen} />

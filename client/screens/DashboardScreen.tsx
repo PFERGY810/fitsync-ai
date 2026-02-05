@@ -24,6 +24,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { MacroRing } from "@/components/MacroRing";
 import { DailyReadinessCard } from "@/components/DailyReadinessCard";
 import { Card } from "@/components/Card";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Colors } from "@/constants/theme";
 import { storage, getUserProfile, getGeneratedProgram } from "@/lib/storage";
@@ -40,6 +42,8 @@ export default function DashboardScreen() {
   const navigation = useNavigation<any>();
 
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
   const [todayFood, setTodayFood] = useState<FoodEntry[]>([]);
   const [checkIns, setCheckIns] = useState<DailyCheckIn[]>([]);
@@ -47,36 +51,45 @@ export default function DashboardScreen() {
   const [userName, setUserName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const loadData = useCallback(async () => {
-    const [userProfile, checkInData] = await Promise.all([
-      getUserProfile(),
-      storage.getDailyCheckIns(),
-    ]);
+  const loadData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(null);
+    try {
+      const [userProfile, checkInData] = await Promise.all([
+        getUserProfile(),
+        storage.getDailyCheckIns(),
+      ]);
 
-    if (userProfile?.name) {
-      setUserName(userProfile.name);
+      if (userProfile?.name) {
+        setUserName(userProfile.name);
+      }
+
+      if (userProfile?.calculatedMacros) {
+        setMacroTargets({
+          calories: userProfile.calculatedMacros.calories,
+          protein: userProfile.calculatedMacros.protein,
+          carbs: userProfile.calculatedMacros.carbs,
+          fat: userProfile.calculatedMacros.fat,
+        });
+      } else {
+        const targets = await storage.getMacroTargets();
+        setMacroTargets(targets || null);
+      }
+
+      setCheckIns(checkInData);
+
+      const todayDate = format(new Date(), "yyyy-MM-dd");
+      const todayEntries = await storage.getFoodEntries(todayDate);
+      setTodayFood(todayEntries);
+
+      const summary = calculateRecoverySummary(checkInData);
+      setRecoveryScore(summary?.score ?? null);
+    } catch (err) {
+      console.error("Error loading dashboard data:", err);
+      setError("Failed to load dashboard data");
+    } finally {
+      setLoading(false);
     }
-
-    if (userProfile?.calculatedMacros) {
-      setMacroTargets({
-        calories: userProfile.calculatedMacros.calories,
-        protein: userProfile.calculatedMacros.protein,
-        carbs: userProfile.calculatedMacros.carbs,
-        fat: userProfile.calculatedMacros.fat,
-      });
-    } else {
-      const targets = await storage.getMacroTargets();
-      setMacroTargets(targets || null);
-    }
-
-    setCheckIns(checkInData);
-
-    const todayDate = format(new Date(), "yyyy-MM-dd");
-    const todayEntries = await storage.getFoodEntries(todayDate);
-    setTodayFood(todayEntries);
-
-    const summary = calculateRecoverySummary(checkInData);
-    setRecoveryScore(summary?.score ?? 85); // Default to 85 for mockup feel if no data
   }, []);
 
   useEffect(() => {
@@ -87,7 +100,7 @@ export default function DashboardScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadData();
+    await loadData(false);
     setRefreshing(false);
   }, [loadData]);
 
@@ -99,16 +112,15 @@ export default function DashboardScreen() {
     { calories: 0, protein: 0 },
   );
 
-  // Recovery History for Graph (Mock last 7 days from actual data)
+  // Recovery History for Graph (last 7 days from actual data)
   const getRecoveryHistory = () => {
-    const history = [];
+    const history: (number | null)[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = subDays(new Date(), i);
       const dStr = format(d, "yyyy-MM-dd");
-      // Find checkin or mock basic fluctuation
       const checkIn = checkIns.find(c => c.date === dStr);
-      // If real data exists use it, otherwise mock reasonable values
-      history.push(checkIn?.readyScore || 65 + Math.floor(Math.random() * 30));
+      // Use actual data or null for missing days
+      history.push(checkIn?.readyScore ?? null);
     }
     return history;
   };
@@ -122,9 +134,10 @@ export default function DashboardScreen() {
       const d = addDays(startOfWeek, i);
       const isSelected = isSameDay(d, new Date()); // Highlight today
       const isToday = isSameDay(d, new Date());
+      const dayKey = format(d, "yyyy-MM-dd");
 
       days.push(
-        <View key={i} style={[styles.dayColumn, isSelected && styles.selectedDayColumn]}>
+        <View key={`calendar-${dayKey}`} style={[styles.dayColumn, isSelected && styles.selectedDayColumn]}>
           <ThemedText type="small" style={{ color: isSelected ? Colors.brand : theme.textSecondary, marginBottom: 4 }}>
             {format(d, "EEE")}
           </ThemedText>
@@ -138,6 +151,21 @@ export default function DashboardScreen() {
     }
     return <View style={styles.calendarStrip}>{days}</View>;
   };
+
+  if (loading) {
+    return <LoadingState message="Loading dashboard..." fullScreen />;
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Failed to Load"
+        message={error}
+        onRetry={() => loadData()}
+        fullScreen
+      />
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
@@ -223,7 +251,7 @@ export default function DashboardScreen() {
         <AnimatedView entering={FadeInDown.duration(500).delay(200)}>
           <Pressable onPress={() => navigation.navigate("DailyCheckIn")}>
             <DailyReadinessCard
-              score={recoveryScore || 85}
+              score={recoveryScore}
               history={getRecoveryHistory()}
             />
           </Pressable>

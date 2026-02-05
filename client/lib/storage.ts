@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import { v4 as uuidv4 } from "uuid";
-import { getApiUrl } from "./query-client";
+import { getApiUrl, apiRequest } from "./query-client";
 import type {
   UserProfile,
   DailyCheckIn,
@@ -14,6 +14,55 @@ import type {
   TierRankingEntry,
 } from "@/types";
 import type { PhysiqueAnalysisResult } from "@/types/onboarding";
+
+// Type definitions for data structures
+export type CycleInfo = {
+  isEnhanced: boolean;
+  weeksIn?: number;
+  totalWeeks?: number;
+  compounds?: Array<{
+    name: string;
+    dosageAmount: number;
+    dosageUnit: string;
+    frequency: string;
+    administrationMethod: string;
+    injectionSite?: string;
+    timeOfDay?: string;
+  }>;
+};
+
+export type GeneratedProgram = {
+  programName?: string;
+  programNotes?: string;
+  weeklyVolume?: Record<string, number>;
+  enhancedProtocol?: boolean;
+  periodizationNote?: string;
+  schedule?: Array<{
+    day: number;
+    name: string;
+    muscleGroups: string[];
+    exercises: Array<{
+      name: string;
+      sets: number;
+      repRange?: string;
+      reps?: string;
+      targetRIR?: number;
+      rir?: number;
+      tempo?: string;
+      formCues?: string[];
+      whatToFeel?: string;
+      rationale?: string;
+      muscleGroup?: string;
+    }>;
+  }>;
+  logicKeywords?: string[];
+};
+
+type OfflinePayload = {
+  profileId: string;
+  checkIn?: Omit<DailyCheckIn, "id" | "createdAt">;
+  entry?: Omit<FoodEntry, "id" | "createdAt">;
+};
 
 const KEYS = {
   USER_PROFILE: "fitsync_user_profile",
@@ -38,7 +87,7 @@ type OfflineWriteType = "checkin" | "food-entry";
 type OfflineWrite = {
   id: string;
   type: OfflineWriteType;
-  payload: any;
+  payload: OfflinePayload;
   createdAt: string;
 };
 
@@ -49,7 +98,7 @@ async function isOnline(): Promise<boolean> {
 
 async function enqueueOfflineWrite(
   type: OfflineWriteType,
-  payload: any,
+  payload: OfflinePayload,
 ): Promise<void> {
   const queue = await getItem<OfflineWrite[]>(KEYS.OFFLINE_QUEUE, []);
   const nextQueue = [
@@ -63,27 +112,19 @@ async function syncCheckIn(
   profileId: string,
   checkIn: Omit<DailyCheckIn, "id" | "createdAt">,
 ) {
-  await fetch(new URL("/api/check-in", getApiUrl()).toString(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profileId, ...checkIn }),
-  });
+  await apiRequest("POST", "/api/check-in", { profileId, ...checkIn });
 }
 
 async function syncFoodEntry(
   profileId: string,
   entry: Omit<FoodEntry, "id" | "createdAt">,
 ) {
-  await fetch(new URL("/api/food/entries", getApiUrl()).toString(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      profileId,
-      date: entry.date,
-      food: entry,
-      mealType: entry.mealType,
-      servings: entry.servings || 1,
-    }),
+  await apiRequest("POST", "/api/food/entries", {
+    profileId,
+    date: entry.date,
+    food: entry,
+    mealType: entry.mealType,
+    servings: entry.servings || 1,
   });
 }
 
@@ -134,13 +175,7 @@ export async function resetAllData(): Promise<boolean> {
     // Reset server-side data
     const profileId = await getProfileId();
     const deletePath = profileId ? `/api/profile/${profileId}` : "/api/profile";
-    const response = await fetch(
-      new URL(deletePath, getApiUrl()).toString(),
-      {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-      },
-    );
+    await apiRequest("DELETE", deletePath);
 
     console.log("All data reset successfully");
     return true;
@@ -153,26 +188,16 @@ export async function resetAllData(): Promise<boolean> {
   }
 }
 
-export async function saveUserProfile(profile: any): Promise<any> {
+export async function saveUserProfile(profile: Partial<UserProfile>): Promise<UserProfile | Partial<UserProfile>> {
   await setItem(KEYS.USER_PROFILE, profile);
 
   try {
-    const response = await fetch(
-      new URL("/api/profile", getApiUrl()).toString(),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profile),
-      },
-    );
-
-    if (response.ok) {
-      const savedProfile = await response.json();
-      if (savedProfile?.id) {
-        await setItem(KEYS.PROFILE_ID, savedProfile.id);
-      }
-      return savedProfile;
+    const response = await apiRequest("POST", "/api/profile", profile);
+    const savedProfile = await response.json();
+    if (savedProfile?.id) {
+      await setItem(KEYS.PROFILE_ID, savedProfile.id);
     }
+    return savedProfile;
   } catch (error) {
     console.error("Error syncing profile to server:", error);
   }
@@ -180,25 +205,21 @@ export async function saveUserProfile(profile: any): Promise<any> {
   return profile;
 }
 
-export async function getUserProfile(): Promise<any | null> {
-  const localProfile = await getItem<any>(KEYS.USER_PROFILE, null);
+export async function getUserProfile(): Promise<UserProfile | null> {
+  const localProfile = await getItem<UserProfile | null>(KEYS.USER_PROFILE, null);
 
   try {
-    const response = await fetch(
-      new URL("/api/profile", getApiUrl()).toString(),
-    );
-    if (response.ok) {
-      const serverProfile = await response.json();
-      if (serverProfile) {
-        if (!serverProfile.sex && serverProfile.gender) {
-          serverProfile.sex = serverProfile.gender;
-        }
-        await setItem(KEYS.USER_PROFILE, serverProfile);
-        if (serverProfile.id) {
-          await setItem(KEYS.PROFILE_ID, serverProfile.id);
-        }
-        return serverProfile;
+    const response = await apiRequest("GET", "/api/profile");
+    const serverProfile = await response.json();
+    if (serverProfile) {
+      if (!serverProfile.sex && serverProfile.gender) {
+        serverProfile.sex = serverProfile.gender;
       }
+      await setItem(KEYS.USER_PROFILE, serverProfile);
+      if (serverProfile.id) {
+        await setItem(KEYS.PROFILE_ID, serverProfile.id);
+      }
+      return serverProfile;
     }
   } catch (error) {
     console.log("Using local profile, server unavailable");
@@ -217,8 +238,8 @@ export async function getProfileId(): Promise<string | null> {
 export async function isOnboardingComplete(): Promise<boolean> {
   // Fast path: check local storage first without server call
   try {
-    const localProfile = await getItem<any>(KEYS.USER_PROFILE, null);
-    if (localProfile?.onboardingCompleted === true || localProfile?.onboardingComplete === true) {
+    const localProfile = await getItem<UserProfile | null>(KEYS.USER_PROFILE, null);
+    if (localProfile?.onboardingCompleted === true) {
       return true;
     }
 
@@ -253,59 +274,47 @@ export async function isOnboardingComplete(): Promise<boolean> {
   }
 }
 
-export async function getMacroTargets(): Promise<any | null> {
-  return getItem<any>(KEYS.MACRO_TARGETS, null);
+export async function getMacroTargets(): Promise<MacroTargets | null> {
+  return getItem<MacroTargets | null>(KEYS.MACRO_TARGETS, null);
 }
 
-export async function saveMacroTargets(targets: any): Promise<void> {
+export async function saveMacroTargets(targets: MacroTargets): Promise<void> {
   await setItem(KEYS.MACRO_TARGETS, targets);
 
   try {
     const profileId = await getProfileId();
     if (profileId) {
-      await fetch(new URL("/api/macros", getApiUrl()).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId, ...targets }),
-      });
+      await apiRequest("POST", "/api/macros", { profileId, ...targets });
     }
   } catch (error) {
     console.error("Error syncing macros to server:", error);
   }
 }
 
-export async function saveGeneratedProgram(program: any): Promise<void> {
+export async function saveGeneratedProgram(program: GeneratedProgram): Promise<void> {
   await setItem(KEYS.GENERATED_PROGRAM, program);
 
   try {
     const profileId = await getProfileId();
     if (profileId) {
-      await fetch(new URL("/api/program", getApiUrl()).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId, ...program }),
-      });
+      await apiRequest("POST", "/api/program", { profileId, ...program });
     }
   } catch (error) {
     console.error("Error syncing program to server:", error);
   }
 }
 
-export async function getGeneratedProgram(): Promise<any | null> {
-  const localProgram = await getItem<any>(KEYS.GENERATED_PROGRAM, null);
+export async function getGeneratedProgram(): Promise<GeneratedProgram | null> {
+  const localProgram = await getItem<GeneratedProgram | null>(KEYS.GENERATED_PROGRAM, null);
 
   try {
     const profileId = await getProfileId();
     if (profileId) {
-      const response = await fetch(
-        new URL(`/api/program/${profileId}`, getApiUrl()).toString(),
-      );
-      if (response.ok) {
-        const serverProgram = await response.json();
-        if (serverProgram) {
-          await setItem(KEYS.GENERATED_PROGRAM, serverProgram);
-          return serverProgram;
-        }
+      const response = await apiRequest("GET", `/api/program/${profileId}`);
+      const serverProgram = await response.json();
+      if (serverProgram) {
+        await setItem(KEYS.GENERATED_PROGRAM, serverProgram);
+        return serverProgram;
       }
     }
   } catch (error) {
@@ -364,15 +373,11 @@ export async function saveProgressPhoto(
   try {
     const profileId = await getProfileId();
     if (profileId) {
-      await fetch(new URL("/api/photos", getApiUrl()).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profileId,
-          photoType,
-          photoData,
-          dateTaken: new Date().toISOString(),
-        }),
+      await apiRequest("POST", "/api/photos", {
+        profileId,
+        photoType,
+        photoData,
+        dateTaken: new Date().toISOString(),
       });
     }
   } catch (error) {
@@ -380,22 +385,18 @@ export async function saveProgressPhoto(
   }
 }
 
-export async function saveCycleInfo(cycleData: any): Promise<void> {
+export async function saveCycleInfo(cycleData: CycleInfo): Promise<void> {
   try {
     const profileId = await getProfileId();
     if (profileId) {
-      await fetch(new URL("/api/cycle-info", getApiUrl()).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profileId, ...cycleData }),
-      });
+      await apiRequest("POST", "/api/cycle-info", { profileId, ...cycleData });
     }
   } catch (error) {
     console.error("Error saving cycle info to server:", error);
   }
 }
 
-export async function savePhysiqueAnalysis(analysis: any): Promise<void> {
+export async function savePhysiqueAnalysis(analysis: PhysiqueAnalysisResult): Promise<void> {
   await setItem(KEYS.PHYSIQUE_ANALYSIS, analysis);
 
   try {
@@ -413,18 +414,20 @@ export async function savePhysiqueAnalysis(analysis: any): Promise<void> {
 }
 
 export async function getTierRanking(): Promise<TierRankingEntry[]> {
-  const ranking = await getItem<TierRankingEntry[]>(KEYS.TIER_RANKING, []);
-  if (!ranking || ranking.length === 0) {
-    // Mock initial data
-    return [
-      { rank: 1, name: "SwolePatrol", score: 920, tier: "Gold", avatar: "S" },
-      { rank: 2, name: "IronGiant", score: 885, tier: "Silver", avatar: "I" },
-      { rank: 3, name: "LiftLord", score: 850, tier: "Bronze", avatar: "L" },
-      { rank: 4, name: "You", score: 720, tier: "Bronze", isCurrentUser: true },
-      { rank: 5, name: "GymBro99", score: 690, tier: "Bronze", avatar: "G" },
-    ];
+  const localRanking = await getItem<TierRankingEntry[]>(KEYS.TIER_RANKING, []);
+
+  try {
+    const response = await apiRequest("GET", "/api/coach/tier-ranking");
+    const serverRanking = await response.json();
+    if (serverRanking && Array.isArray(serverRanking)) {
+      await setItem(KEYS.TIER_RANKING, serverRanking);
+      return serverRanking;
+    }
+  } catch (error) {
+    console.log("Using local tier ranking, server unavailable");
   }
-  return ranking;
+
+  return localRanking;
 }
 
 export async function saveTierRanking(

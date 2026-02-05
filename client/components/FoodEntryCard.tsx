@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo, useCallback } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
@@ -12,7 +12,7 @@ interface FoodEntryCardProps {
   onDelete?: () => void;
 }
 
-export function FoodEntryCard({ entry, onDelete }: FoodEntryCardProps) {
+export const FoodEntryCard = memo(function FoodEntryCard({ entry, onDelete }: FoodEntryCardProps) {
   const { theme } = useTheme();
 
   return (
@@ -71,7 +71,7 @@ export function FoodEntryCard({ entry, onDelete }: FoodEntryCardProps) {
       </View>
     </Card>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: {

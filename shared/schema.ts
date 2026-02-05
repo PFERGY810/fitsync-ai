@@ -67,6 +67,14 @@ export const profiles = pgTable("profiles", {
   >(),
   allergies: jsonb("allergies").$type<string[]>(),
   healthConditions: jsonb("health_conditions").$type<string[]>(),
+  injuries: text("injuries"),
+  equipment: jsonb("equipment").$type<{
+    preset: string;
+    available: string[];
+    gymName?: string;
+    gymCity?: string;
+    gymState?: string;
+  }>(),
   bloodPressureMedication: boolean("blood_pressure_medication").default(false),
   hasDoctor: boolean("has_doctor").default(false),
   strengthGoals: jsonb("strength_goals").$type<{
@@ -276,6 +284,38 @@ export const foodEntries = pgTable("food_entries", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const achievements = pgTable("achievements", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  profileId: varchar("profile_id").references(() => profiles.id),
+  achievementType: text("achievement_type").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  icon: text("icon"),
+  points: integer("points").default(10),
+  unlockedAt: timestamp("unlocked_at"),
+  progress: integer("progress").default(0),
+  target: integer("target").default(1),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const leaderboardEntries = pgTable("leaderboard_entries", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  profileId: varchar("profile_id").references(() => profiles.id),
+  category: text("category").notNull(),
+  score: integer("score").default(0),
+  rank: integer("rank"),
+  weekNumber: integer("week_number"),
+  yearNumber: integer("year_number"),
+  metadata: jsonb("metadata"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
   username: true,
@@ -324,3 +364,5 @@ export type FoodEntry = typeof foodEntries.$inferSelect;
 export type LooksmaxxAnalysis = typeof looksmaxxAnalyses.$inferSelect;
 export type LooksmaxxProtocol = typeof looksmaxxProtocols.$inferSelect;
 export type LooksmaxxTreatment = typeof looksmaxxTreatments.$inferSelect;
+export type Achievement = typeof achievements.$inferSelect;
+export type LeaderboardEntry = typeof leaderboardEntries.$inferSelect;
